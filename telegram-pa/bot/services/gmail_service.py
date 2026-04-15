@@ -1,8 +1,13 @@
 import asyncio
 import base64
 import logging
+import mimetypes
+import os
 from datetime import datetime, timezone
 from email import message_from_bytes
+from email.mime.base import MIMEBase
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
 from typing import Optional
 
 import aiosqlite
@@ -170,4 +175,80 @@ def format_email_digest(emails: list[dict]) -> str:
             f"   *Re:* {e['subject']}\n"
             f"   {e['summary']}\n"
         )
+    return "\n".join(lines)
+
+
+def _send_email_sync(creds, to: str, subject: str, body: str, attachment_path: str | None = None) -> dict:
+    service = _build_service_sync(creds)
+
+    if attachment_path:
+        msg = MIMEMultipart()
+        msg["To"] = to
+        msg["Subject"] = subject
+        msg.attach(MIMEText(body, "plain"))
+
+        mime_type, _ = mimetypes.guess_type(attachment_path)
+        mime_type = mime_type or "application/octet-stream"
+        main_type, sub_type = mime_type.split("/", 1)
+
+        with open(attachment_path, "rb") as f:
+            part = MIMEBase(main_type, sub_type)
+            part.set_payload(f.read())
+
+        import email.encoders
+        email.encoders.encode_base64(part)
+        part.add_header(
+            "Content-Disposition",
+            f"attachment; filename={os.path.basename(attachment_path)}",
+        )
+        msg.attach(part)
+    else:
+        msg = MIMEText(body, "plain")
+        msg["To"] = to
+        msg["Subject"] = subject
+
+    raw = base64.urlsafe_b64encode(msg.as_bytes()).decode()
+    return service.users().messages().send(
+        userId="me", body={"raw": raw}
+    ).execute()
+
+
+async def send_email(to: str, subject: str, body: str, attachment_path: str | None = None) -> dict:
+    creds = await get_credentials()
+    return await asyncio.to_thread(_send_email_sync, creds, to, subject, body, attachment_path)
+
+
+def _get_overview_sync(creds, max_results: int = 10) -> list[dict]:
+    """Fetch last N emails from inbox for a quick overview."""
+    service = _build_service_sync(creds)
+    result = service.users().messages().list(
+        userId="me",
+        labelIds=["INBOX"],
+        maxResults=max_results,
+    ).execute()
+    messages = result.get("messages", [])
+    emails = []
+    for m in messages:
+        msg = service.users().messages().get(
+            userId="me", id=m["id"], format="metadata",
+            fields="id,snippet,payload/headers,internalDate"
+        ).execute()
+        emails.append({
+            "sender": _extract_header(msg, "From"),
+            "subject": _extract_header(msg, "Subject"),
+            "snippet": msg.get("snippet", ""),
+            "date": msg.get("internalDate", ""),
+        })
+    return emails
+
+
+async def get_inbox_overview(max_results: int = 10) -> str:
+    """Return a plain-text overview of the last N inbox emails."""
+    creds = await get_credentials()
+    emails = await asyncio.to_thread(_get_overview_sync, creds, max_results)
+    if not emails:
+        return "Inbox is empty."
+    lines = [f"Last {len(emails)} emails:\n"]
+    for i, e in enumerate(emails, 1):
+        lines.append(f"{i}. From: {e['sender']}\n   Re: {e['subject']}\n   {e['snippet'][:120]}\n")
     return "\n".join(lines)

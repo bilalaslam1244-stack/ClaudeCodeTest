@@ -113,6 +113,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     elif intent in ("email_check", "email_summarize"):
         await _handle_email_check(update, context, lang)
 
+    elif intent == "email_overview":
+        await _handle_email_overview(update, context, lang)
+
+    elif intent == "email_send":
+        await _handle_email_send(update, context, entities, lang, text)
+
     elif intent == "doc_generate":
         await _handle_doc_generate(update, context, entities, lang, text)
 
@@ -304,6 +310,32 @@ async def _handle_doc_generate(update, context, entities, lang, text):
             )
     finally:
         cleanup(doc_path)
+
+
+async def _handle_email_overview(update, context, lang):
+    await update.effective_message.reply_text("Fetching inbox overview...")
+    overview = await gmail_service.get_inbox_overview(max_results=10)
+    await send_long_message(context.bot, update.effective_chat.id, overview)
+
+
+async def _handle_email_send(update, context, entities, lang, text):
+    to = entities.get("email_to")
+    subject = entities.get("email_subject") or "Message from your PA"
+    body = entities.get("email_body") or text
+
+    if not to:
+        await update.effective_message.reply_text(
+            "Who should I send it to? Please provide an email address or name."
+        )
+        return
+
+    await update.effective_message.reply_text(f"Sending email to {to}...")
+    try:
+        await gmail_service.send_email(to=to, subject=subject, body=body)
+        await update.effective_message.reply_text(f"Email sent to {to}.")
+    except Exception as exc:
+        logger.error("Failed to send email: %s", exc)
+        await update.effective_message.reply_text(f"Failed to send email: {exc}")
 
 
 async def _handle_general_chat(update, context, lang, text):

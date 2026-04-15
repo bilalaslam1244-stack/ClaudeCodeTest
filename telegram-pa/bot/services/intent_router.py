@@ -19,6 +19,8 @@ VALID_INTENTS = {
     "note_retrieve",
     "email_check",
     "email_summarize",
+    "email_send",
+    "email_overview",
     "doc_generate",
     "meeting_minutes",
     "general_chat",
@@ -32,7 +34,7 @@ Classify the user message into exactly one intent from this list:
 reminder_set | reminder_list | reminder_cancel |
 calendar_create | calendar_reschedule | calendar_cancel | calendar_list |
 note_save | note_retrieve |
-email_check | email_summarize |
+email_check | email_summarize | email_send | email_overview |
 doc_generate | meeting_minutes |
 general_chat
 
@@ -47,7 +49,10 @@ Return this exact JSON schema:
     "output_format": "<docx|pdf|text|null>",
     "calendar_event_name": "<event title, or null>",
     "duration_minutes": <integer or null>,
-    "person": "<person name, or null>"
+    "person": "<person name, or null>",
+    "email_to": "<recipient email address or name, or null>",
+    "email_subject": "<email subject line, or null>",
+    "email_body": "<email body text, or null>"
   }}
 }}
 

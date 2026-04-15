@@ -18,7 +18,7 @@ SONNET_INTENTS = {"doc_generate", "meeting_minutes", "email_summarize"}
 
 GOOGLE_SCOPES = [
     "https://www.googleapis.com/auth/calendar",
-    "https://www.googleapis.com/auth/gmail.readonly",
+    "https://www.googleapis.com/auth/gmail.modify",
 ]
 
 GMAIL_POLL_INTERVAL_MINUTES = 15
