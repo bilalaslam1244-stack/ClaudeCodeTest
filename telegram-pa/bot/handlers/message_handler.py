@@ -41,7 +41,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             await message.reply_text("Transcribing...")
             text = await voice_handler.download_and_transcribe(update, context)
             is_voice = True
-            await message.reply_text(f"[Transcript]\n{text}")
+            from bot.utils.formatting import split_message
+            for part in split_message(f"[Transcript]\n{text}"):
+                await message.reply_text(part)
         except Exception as exc:
             logger.error("Voice transcription failed: %s", exc)
             await message.reply_text("Could not transcribe the audio. Please try again.")

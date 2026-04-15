@@ -10,18 +10,25 @@ from bot.utils.file_utils import cleanup
 
 
 async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle uploaded documents — raw files for report generation or meeting audio."""
+    """Handle uploaded documents and audio files — raw files for report generation or meeting audio."""
     message = update.effective_message
-    doc = message.document
 
-    if doc is None:
+    # Handle both document and audio message types
+    if message.document:
+        media = message.document
+        file_name = media.file_name or "upload"
+    elif message.audio:
+        media = message.audio
+        file_name = media.file_name or (media.title or "audio") + ".m4a"
+    else:
         return
 
-    file_name = doc.file_name or "upload"
     ext = os.path.splitext(file_name)[1].lower()
-    audio_exts = {".ogg", ".mp3", ".m4a", ".wav", ".mp4", ".mpeg", ".mpga", ".webm", ".caf"}
+    if not ext:
+        ext = ".m4a"
+    audio_exts = {".ogg", ".mp3", ".m4a", ".wav", ".mp4", ".mpeg", ".mpga", ".webm", ".caf", ".aac"}
 
-    tg_file = await context.bot.get_file(doc.file_id)
+    tg_file = await context.bot.get_file(media.file_id)
 
     with tempfile.NamedTemporaryFile(suffix=ext, delete=False) as tmp:
         tmp_path = tmp.name

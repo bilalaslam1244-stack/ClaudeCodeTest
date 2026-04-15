@@ -61,16 +61,16 @@ def main() -> None:
         .build()
     )
 
-    # Handlers — documents first (more specific), then voice/text
+    # Handlers — documents + audio files first, then voice notes + text
     application.add_handler(
         MessageHandler(
-            filters.Document.ALL & filters.User(ALLOWED_USER_ID),
+            (filters.Document.ALL | filters.AUDIO) & filters.User(ALLOWED_USER_ID),
             handle_document,
         )
     )
     application.add_handler(
         MessageHandler(
-            (filters.TEXT | filters.VOICE | filters.AUDIO) & filters.User(ALLOWED_USER_ID),
+            (filters.TEXT | filters.VOICE) & filters.User(ALLOWED_USER_ID),
             handle_message,
         )
     )
