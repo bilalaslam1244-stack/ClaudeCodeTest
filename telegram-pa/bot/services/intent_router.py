@@ -3,9 +3,10 @@ import re
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from bot.services import claude_service
-from bot.config import CLAUDE_HAIKU_MODEL
+from bot.config import CLAUDE_HAIKU_MODEL, BOSS_TIMEZONE
 
 VALID_INTENTS = {
     "reminder_set",
@@ -57,7 +58,9 @@ Return this exact JSON schema:
 }}
 
 Rules:
-- Resolve relative times (today, tomorrow, next Monday) using current UTC time: {now}
+- Resolve relative times (today, tomorrow, next Monday) using current LOCAL time: {now} (timezone: {tz})
+- When user says "2pm" or "3pm" they mean LOCAL time ({tz}), not UTC
+- Convert resolved local times to UTC for time_iso output
 - Detected input language: {lang}
 - All time_iso values must be in UTC ISO 8601 (e.g. 2025-06-01T09:00:00Z)
 - If message is a voice transcript tagged [TRANSCRIPT], treat it as direct spoken input
@@ -81,8 +84,9 @@ def _extract_json(text: str) -> dict:
 
 
 def classify(text: str, lang: str = "en") -> IntentResult:
-    now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-    system = SYSTEM_PROMPT.format(now=now, lang=lang)
+    local_tz = ZoneInfo(BOSS_TIMEZONE)
+    now = datetime.now(local_tz).strftime("%Y-%m-%dT%H:%M:%S %Z")
+    system = SYSTEM_PROMPT.format(now=now, tz=BOSS_TIMEZONE, lang=lang)
 
     raw = claude_service.chat(
         system=system,
