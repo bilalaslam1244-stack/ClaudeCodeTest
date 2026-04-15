@@ -1,0 +1,18 @@
+[Unit]
+Description=Telegram PA Bot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/telegram-pa
+ExecStart=/home/ubuntu/telegram-pa/.venv/bin/python -m bot.main
+Restart=on-failure
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+EnvironmentFile=/home/ubuntu/telegram-pa/.env
+
+[Install]
+WantedBy=multi-user.target
