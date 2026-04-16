@@ -167,13 +167,59 @@ async def _summarize_email(sender: str, subject: str, body: str) -> str:
 
 def format_email_digest(emails: list[dict]) -> str:
     if not emails:
-        return "No important emails."
-    lines = ["*Important emails:*\n"]
+        return "No important emails since last check."
+    lines = ["Important emails:\n"]
     for i, e in enumerate(emails, 1):
         lines.append(
-            f"{i}. *From:* {e['sender']}\n"
-            f"   *Re:* {e['subject']}\n"
+            f"{i}. From: {e['sender']}\n"
+            f"   Re: {e['subject']}\n"
             f"   {e['summary']}\n"
+        )
+    return "\n".join(lines)
+
+
+def _fetch_recent_sync(creds, max_results: int, from_filter: str | None) -> list[dict]:
+    service = _build_service_sync(creds)
+    query = "in:inbox -category:promotions"
+    if from_filter:
+        # Search by sender name or email
+        query += f" from:{from_filter}"
+    result = service.users().messages().list(
+        userId="me", q=query, maxResults=max_results
+    ).execute()
+    messages = result.get("messages", [])
+    emails = []
+    for m in messages:
+        try:
+            msg = service.users().messages().get(
+                userId="me", id=m["id"], format="full"
+            ).execute()
+            emails.append({
+                "id": m["id"],
+                "sender": _extract_header(msg, "From"),
+                "subject": _extract_header(msg, "Subject"),
+                "body": _decode_body(msg),
+                "date": msg.get("internalDate", ""),
+            })
+        except Exception as exc:
+            logger.warning("Could not fetch email %s: %s", m["id"], exc)
+    return emails
+
+
+async def get_emails_summary(max_results: int = 10, from_filter: str | None = None) -> str:
+    """Fetch latest inbox emails and return AI-summarized digest. Used for on-demand checks."""
+    creds = await get_credentials()
+    emails = await asyncio.to_thread(_fetch_recent_sync, creds, max_results, from_filter)
+    if not emails:
+        return f"No emails found{f\" from '{from_filter}'\" if from_filter else ''}."
+
+    lines = [f"Latest {len(emails)} email(s):\n"]
+    for i, e in enumerate(emails, 1):
+        summary = await _summarize_email(e["sender"], e["subject"], e["body"])
+        lines.append(
+            f"{i}. From: {e['sender']}\n"
+            f"   Subject: {e['subject']}\n"
+            f"   {summary}\n"
         )
     return "\n".join(lines)
 

@@ -21,7 +21,7 @@ from bot.services import (
 )
 from bot.scheduler import jobs
 from bot.utils.language import detect_language
-from bot.utils.formatting import send_long_message, split_message
+from bot.utils.formatting import send_long_message, split_message, strip_markdown
 from bot.utils.file_utils import cleanup
 
 logger = logging.getLogger(__name__)
@@ -92,6 +92,13 @@ async def handle_message(
         return
 
     if not text:
+        return
+
+    # Memory clear — intercept before intent routing
+    _clear_triggers = {"clear memory", "forget everything", "reset memory", "start fresh", "clear chat"}
+    if text.lower().strip() in _clear_triggers or any(t in text.lower() for t in _clear_triggers):
+        await memory_service.clear_history()
+        await message.reply_text("Memory cleared. Starting fresh.")
         return
 
     # URL detection — intercept before intent routing
@@ -165,7 +172,7 @@ async def handle_message(
         await _handle_note_retrieve(update, context, entities, lang)
 
     elif intent in ("email_check", "email_summarize"):
-        await _handle_email_check(update, context, lang)
+        await _handle_email_check(update, context, entities, lang)
 
     elif intent == "email_overview":
         await _handle_email_overview(update, context, lang)
@@ -201,10 +208,10 @@ async def _handle_reminder_set(update, context, entities, lang, original_text):
     jobs.schedule_reminder(reminder)
 
     display_time = _to_kl(time_iso)
-    reply = claude_service.chat(
+    reply = strip_markdown(claude_service.chat(
         system=f"Confirm a reminder was set. Be brief. Respond in language: {lang}.",
         user=f"Reminder: {description} at {display_time}",
-    )
+    ))
     keyboard = InlineKeyboardMarkup([[
         InlineKeyboardButton("Cancel reminder", callback_data=f"cancel_reminder:{reminder.job_id}")
     ]])
@@ -269,10 +276,10 @@ async def _handle_calendar_create(update, context, entities, lang):
 
     event = await calendar_service.create_event(name, time_iso, int(duration))
     display_time = _to_kl(time_iso)
-    reply = claude_service.chat(
+    reply = strip_markdown(claude_service.chat(
         system=f"Confirm a calendar event was created. Be brief. Respond in language: {lang}.",
         user=f"Event '{name}' created at {display_time} for {duration} minutes.",
-    )
+    ))
     keyboard = InlineKeyboardMarkup([[
         InlineKeyboardButton("Cancel event", callback_data=f"cancel_event:{event['id']}")
     ]])
@@ -335,15 +342,19 @@ async def _handle_note_retrieve(update, context, entities, lang):
     await send_long_message(context.bot, update.effective_chat.id, text)
 
 
-async def _handle_email_check(update, context, lang):
-    await update.effective_message.reply_text("Checking emails...")
-    emails = await gmail_service.poll_new_emails()
-    digest = gmail_service.format_email_digest(emails)
+async def _handle_email_check(update, context, entities, lang):
+    from_filter = entities.get("person") or entities.get("email_to")
+    if from_filter:
+        await update.effective_message.reply_text(f"Fetching emails from {from_filter}...")
+    else:
+        await update.effective_message.reply_text("Fetching and summarizing latest emails...")
+    digest = await gmail_service.get_emails_summary(max_results=10, from_filter=from_filter)
     await send_long_message(context.bot, update.effective_chat.id, digest)
 
 
 async def _handle_email_overview(update, context, lang):
     await update.effective_message.reply_text("Fetching inbox overview...")
+    # Quick overview: subject + snippet only, no summarization
     overview = await gmail_service.get_inbox_overview(max_results=10)
     await send_long_message(context.bot, update.effective_chat.id, overview)
 

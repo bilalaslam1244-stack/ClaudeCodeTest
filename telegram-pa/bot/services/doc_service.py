@@ -26,13 +26,25 @@ async def generate_content(prompt: str, intent: str = "doc_generate") -> str:
 async def generate_meeting_minutes(transcript: str) -> str:
     system = (
         "You are an expert minute-taker. Given a meeting transcript, produce "
-        "structured minutes with these sections:\n"
-        "1. Meeting Details (date, participants if identifiable)\n"
-        "2. Agenda / Topics Discussed\n"
-        "3. Key Decisions Made\n"
-        "4. Action Items (who, what, by when)\n"
-        "5. Full Transcript\n\n"
-        "Be precise and professional."
+        "structured Minutes of Meeting (MOM) with exactly these sections using '## ' headings:\n\n"
+        "## Meeting Details\n"
+        "Date, time, location (if mentioned), and participants.\n\n"
+        "## Agenda / Topics Discussed\n"
+        "Bullet points of main topics covered.\n\n"
+        "## Key Decisions\n"
+        "Bullet points of decisions reached.\n\n"
+        "## Action Items\n"
+        "Each item on its own line: - [Person] — [Task] — [Deadline if mentioned]\n\n"
+        "## Summary\n"
+        "2-3 sentence high-level summary of the meeting.\n\n"
+        "## Full Transcript\n"
+        "The verbatim transcript.\n\n"
+        "IMPORTANT formatting rules:\n"
+        "- Use '## ' for section headings only\n"
+        "- Use '- ' for bullet points\n"
+        "- Do NOT use ** or * or _ for emphasis\n"
+        "- Do NOT use markdown bold/italic anywhere\n"
+        "- Be concise and professional"
     )
     return await asyncio.to_thread(
         claude_service.chat_with_intent,
@@ -60,19 +72,25 @@ def _write_docx(content: str, title: str) -> str:
         run._element.rPr.rFonts.set(qn("w:eastAsia"), "Microsoft YaHei")
 
     # Body — split on lines, detect headings (##)
+    import re as _re
+    def _clean(s):
+        s = _re.sub(r'\*{1,3}', '', s)
+        s = _re.sub(r'_{1,2}', '', s)
+        return s.strip()
+
     for line in content.split("\n"):
         stripped = line.strip()
         if not stripped:
             doc.add_paragraph("")
             continue
         if stripped.startswith("## "):
-            p = doc.add_heading(stripped[3:], level=2)
+            p = doc.add_heading(_clean(stripped[3:]), level=2)
         elif stripped.startswith("### "):
-            p = doc.add_heading(stripped[4:], level=3)
+            p = doc.add_heading(_clean(stripped[4:]), level=3)
         elif stripped.startswith("• ") or stripped.startswith("- "):
-            p = doc.add_paragraph(stripped[2:], style="List Bullet")
+            p = doc.add_paragraph(_clean(stripped[2:]), style="List Bullet")
         else:
-            p = doc.add_paragraph(stripped)
+            p = doc.add_paragraph(_clean(stripped))
 
         for run in p.runs:
             run.font.name = "Microsoft YaHei"
