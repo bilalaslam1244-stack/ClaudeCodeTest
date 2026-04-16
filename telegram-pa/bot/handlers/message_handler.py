@@ -75,12 +75,49 @@ async def handle_message(
 
     elif message.voice:
         try:
-            await message.reply_text("Transcribing...")
-            lang_pre = "en"
-            text = await voice_handler.download_and_transcribe(update, context, lang=lang_pre)
-            is_voice = True
-            for part in split_message(f"[Transcript]\n{text}"):
-                await message.reply_text(part)
+            # Download first so we can check duration before deciding what to do
+            from bot.services import whisper_service as _ws
+            from bot.utils.file_utils import cleanup as _cleanup
+            tmp_voice_path = await voice_handler.download_audio_file(update, context)
+            try:
+                duration = _ws.get_audio_duration_seconds(tmp_voice_path)
+            except Exception:
+                duration = 0.0
+
+            if duration >= 60:
+                # Long voice note → meeting minutes doc
+                await message.reply_text(
+                    "Meeting recording detected. Transcribing... this may take a moment."
+                )
+                try:
+                    transcript = await _ws.transcribe(tmp_voice_path, lang="en")
+                    await message.reply_text("Generating meeting minutes document...")
+                    minutes_content = await doc_service.generate_meeting_minutes(transcript)
+                    doc_path = await doc_service.create_document(minutes_content, "Meeting Minutes", fmt="docx")
+                    try:
+                        with open(doc_path, "rb") as f:
+                            await context.bot.send_document(
+                                chat_id=update.effective_chat.id,
+                                document=f,
+                                filename="Meeting_Minutes.docx",
+                                caption="Meeting minutes ready.",
+                            )
+                    finally:
+                        _cleanup(doc_path)
+                except Exception as exc:
+                    logger.error("Voice meeting minutes failed: %s", exc)
+                    await message.reply_text(f"Could not generate minutes: {exc}")
+                finally:
+                    _cleanup(tmp_voice_path)
+                return
+            else:
+                # Short voice note → voice command
+                await message.reply_text("Transcribing...")
+                text = await _ws.transcribe(tmp_voice_path, lang="en")
+                is_voice = True
+                for part in split_message(f"[Transcript]\n{text}"):
+                    await message.reply_text(part)
+                _cleanup(tmp_voice_path)
         except Exception as exc:
             logger.error("Voice transcription failed: %s", exc)
             await message.reply_text("Could not transcribe the audio. Please try again.")
