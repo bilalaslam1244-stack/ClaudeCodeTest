@@ -211,7 +211,8 @@ async def get_emails_summary(max_results: int = 10, from_filter: str | None = No
     creds = await get_credentials()
     emails = await asyncio.to_thread(_fetch_recent_sync, creds, max_results, from_filter)
     if not emails:
-        return f"No emails found{f\" from '{from_filter}'\" if from_filter else ''}."
+        suffix = f" from '{from_filter}'" if from_filter else ""
+        return f"No emails found{suffix}."
 
     lines = [f"Latest {len(emails)} email(s):\n"]
     for i, e in enumerate(emails, 1):
