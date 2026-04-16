@@ -102,8 +102,12 @@ async def handle_message(
         await message.reply_text("Fetching and summarizing URL...")
         summary = await url_service.fetch_and_summarize(url, lang=lang)
         await send_long_message(context.bot, update.effective_chat.id, summary)
+        # Store URL + full summary in memory so follow-up questions have context
         await memory_service.add_message("user", text)
-        await memory_service.add_message("assistant", summary)
+        await memory_service.add_message(
+            "assistant",
+            f"[I fetched {url} and found the following]\n{summary}"
+        )
         return
 
     lang = detect_language(text)
@@ -397,7 +401,19 @@ async def _handle_general_chat(update, context, lang, text):
     system = (
         "You are a smart, efficient personal assistant for a busy executive. "
         "Be concise and professional. "
-        f"Respond in language: {lang}."
+        f"Respond in language: {lang}. "
+        "You have the following capabilities — never claim you cannot do these: "
+        "1) Fetch and summarize any URL the user sends. "
+        "2) Send emails on the user's behalf. "
+        "3) Read and summarize the inbox. "
+        "4) Create, reschedule, cancel, and list Google Calendar events. "
+        "5) Set, list, and cancel reminders. "
+        "6) Save and retrieve notes. "
+        "7) Generate Word (.docx) or PDF documents. "
+        "8) Transcribe voice notes and audio recordings. "
+        "9) Produce meeting minutes from audio files. "
+        "If a previous message contains fetched web content (prefixed with '[I fetched ...'), "
+        "use that content to answer follow-up questions directly."
     )
     reply = claude_service.chat_with_history(system=system, history=history, user=text)
     await send_long_message(context.bot, update.effective_chat.id, reply)
