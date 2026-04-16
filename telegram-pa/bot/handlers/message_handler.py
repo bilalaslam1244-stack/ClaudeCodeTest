@@ -396,6 +396,9 @@ async def _handle_email_overview(update, context, lang):
     await send_long_message(context.bot, update.effective_chat.id, overview)
 
 
+_EMAIL_RE = re.compile(r"^[\w.+-]+@[\w.-]+\.\w+$")
+
+
 async def _handle_email_send(update, context, entities, lang, text):
     to = entities.get("email_to")
     subject = entities.get("email_subject") or "Message from your PA"
@@ -406,6 +409,19 @@ async def _handle_email_send(update, context, entities, lang, text):
             "Who should I send it to? Please provide an email address."
         )
         return
+
+    # If 'to' is a name not an email address, look it up in Gmail history
+    if not _EMAIL_RE.match(to.strip()):
+        await update.effective_message.reply_text(f"Looking up email address for {to}...")
+        resolved = await gmail_service.find_contact_email(to.strip())
+        if resolved:
+            to = resolved
+        else:
+            await update.effective_message.reply_text(
+                f"Could not find an email address for '{to}'. "
+                f"Please reply with their full email address."
+            )
+            return
 
     await update.effective_message.reply_text(f"Sending email to {to}...")
     try:

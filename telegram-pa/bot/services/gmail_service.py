@@ -265,6 +265,42 @@ async def send_email(to: str, subject: str, body: str, attachment_path: str | No
     return await asyncio.to_thread(_send_email_sync, creds, to, subject, body, attachment_path)
 
 
+def _find_contact_sync(creds, name: str) -> str | None:
+    """Search sent + inbox history for an email address matching the given name."""
+    import re as _re
+    service = _build_service_sync(creds)
+    # Search sent mail and inbox for the name
+    for query in [f"to:{name}", f"from:{name}"]:
+        try:
+            result = service.users().messages().list(
+                userId="me", q=query, maxResults=5
+            ).execute()
+            for msg_ref in result.get("messages", []):
+                msg = service.users().messages().get(
+                    userId="me", id=msg_ref["id"],
+                    format="metadata",
+                    fields="payload/headers"
+                ).execute()
+                for header in msg.get("payload", {}).get("headers", []):
+                    if header["name"].lower() in ("to", "from", "cc"):
+                        # Extract email from "Name <email@domain.com>" or bare address
+                        match = _re.search(r"[\w.+-]+@[\w.-]+\.\w+", header["value"])
+                        if match:
+                            addr = match.group()
+                            # Check name appears in the header value
+                            if name.lower() in header["value"].lower():
+                                return addr
+        except Exception:
+            continue
+    return None
+
+
+async def find_contact_email(name: str) -> str | None:
+    """Return an email address for the given name, or None if not found."""
+    creds = await get_credentials()
+    return await asyncio.to_thread(_find_contact_sync, creds, name)
+
+
 def _get_overview_sync(creds, max_results: int = 10) -> list[dict]:
     """Fetch last N emails from inbox for a quick overview."""
     service = _build_service_sync(creds)
