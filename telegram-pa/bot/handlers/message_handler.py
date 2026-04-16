@@ -1,4 +1,7 @@
 import logging
+import re
+from zoneinfo import ZoneInfo
+from datetime import datetime
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
@@ -13,57 +16,102 @@ from bot.services import (
     gmail_service,
     notes_service,
     doc_service,
+    memory_service,
+    url_service,
 )
 from bot.scheduler import jobs
 from bot.utils.language import detect_language
-from bot.utils.formatting import send_long_message
+from bot.utils.formatting import send_long_message, split_message
 from bot.utils.file_utils import cleanup
 
 logger = logging.getLogger(__name__)
 
 _CONFIDENCE_THRESHOLD = 0.65
+_URL_RE = re.compile(r"https?://\S+")
+_KL_TZ = ZoneInfo(BOSS_TIMEZONE)
 
 
-async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+def _to_kl(iso: str) -> str:
+    """Convert any ISO 8601 string to KL local time string for display."""
+    try:
+        dt = datetime.fromisoformat(iso.replace("Z", "+00:00"))
+        kl = dt.astimezone(_KL_TZ)
+        return kl.strftime("%a, %d %b %Y %I:%M %p %Z")
+    except Exception:
+        return iso
+
+
+async def handle_message(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    audio_path_override: str | None = None,
+) -> None:
     message = update.effective_message
     user_id = update.effective_user.id if update.effective_user else None
 
-    # Allowlist gate
     if user_id != ALLOWED_USER_ID:
         return
 
-    # Resolve text: transcribe voice, or use text directly
     text = ""
     is_voice = False
 
-    if message.voice or (message.audio and not message.document):
+    if audio_path_override:
+        # Short audio forwarded from document_handler
+        try:
+            lang_hint = "en"
+            text = await voice_handler.download_and_transcribe.__wrapped__ \
+                if hasattr(voice_handler.download_and_transcribe, "__wrapped__") \
+                else None
+            # Transcribe directly from path
+            from bot.services import whisper_service
+            text = await whisper_service.transcribe(audio_path_override, lang="en")
+            is_voice = True
+            for part in split_message(f"[Transcript]\n{text}"):
+                await message.reply_text(part)
+        except Exception as exc:
+            logger.error("Audio override transcription failed: %s", exc)
+            await message.reply_text("Could not transcribe audio. Please try again.")
+            return
+
+    elif message.voice:
         try:
             await message.reply_text("Transcribing...")
-            text = await voice_handler.download_and_transcribe(update, context)
+            lang_pre = "en"
+            text = await voice_handler.download_and_transcribe(update, context, lang=lang_pre)
             is_voice = True
-            from bot.utils.formatting import split_message
             for part in split_message(f"[Transcript]\n{text}"):
                 await message.reply_text(part)
         except Exception as exc:
             logger.error("Voice transcription failed: %s", exc)
             await message.reply_text("Could not transcribe the audio. Please try again.")
             return
+
     elif message.text:
         text = message.text.strip()
     else:
-        return  # documents handled by document_handler
+        return
 
     if not text:
         return
 
-    # Language detection
-    lang = detect_language(text)
-    if is_voice:
-        tagged = f"[TRANSCRIPT] {text}"
-    else:
-        tagged = text
+    # URL detection — intercept before intent routing
+    url_match = _URL_RE.search(text)
+    if url_match:
+        url = url_match.group()
+        lang = detect_language(text)
+        await message.reply_text("Fetching and summarizing URL...")
+        summary = await url_service.fetch_and_summarize(url, lang=lang)
+        await send_long_message(context.bot, update.effective_chat.id, summary)
+        await memory_service.add_message("user", text)
+        await memory_service.add_message("assistant", summary)
+        return
 
-    # Intent classification
+    lang = detect_language(text)
+    tagged = f"[TRANSCRIPT] {text}" if is_voice else text
+
+    # Save user message to memory
+    await memory_service.add_message("user", text)
+
     result = intent_router.classify(tagged, lang)
     intent = result.intent
     entities = result.entities
@@ -71,14 +119,16 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
     logger.info("Intent: %s (%.2f) | lang: %s", intent, confidence, lang)
 
-    # Low confidence — ask for clarification via Claude
     if confidence < _CONFIDENCE_THRESHOLD:
-        clarify = claude_service.chat(
+        history = await memory_service.get_history()
+        clarify = claude_service.chat_with_history(
             system=f"You are a helpful PA. The user said something ambiguous. "
                    f"Ask a short clarifying question in language: {lang}.",
+            history=history,
             user=text,
         )
         await message.reply_text(clarify)
+        await memory_service.add_message("assistant", clarify)
         return
 
     # ── Dispatch ──────────────────────────────────────────────────────────────
@@ -92,7 +142,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     elif intent == "reminder_cancel":
         await _handle_reminder_cancel(update, context, entities, lang, text)
 
-    elif intent in ("calendar_create",):
+    elif intent == "calendar_create":
         await _handle_calendar_create(update, context, entities, lang)
 
     elif intent == "calendar_reschedule":
@@ -124,10 +174,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
     elif intent == "meeting_minutes":
         await message.reply_text(
-            "Please send the meeting audio file directly as a file attachment."
+            "Please send the meeting audio file as a file attachment (paperclip → File)."
         )
 
-    else:  # general_chat
+    else:
         await _handle_general_chat(update, context, lang, text)
 
 
@@ -146,34 +196,38 @@ async def _handle_reminder_set(update, context, entities, lang, original_text):
     reminder = await reminder_service.create(description, time_iso)
     jobs.schedule_reminder(reminder)
 
+    display_time = _to_kl(time_iso)
     reply = claude_service.chat(
         system=f"Confirm a reminder was set. Be brief. Respond in language: {lang}.",
-        user=f"Reminder: {description} at {time_iso} (timezone: {BOSS_TIMEZONE})",
+        user=f"Reminder: {description} at {display_time}",
     )
     keyboard = InlineKeyboardMarkup([[
         InlineKeyboardButton("Cancel reminder", callback_data=f"cancel_reminder:{reminder.job_id}")
     ]])
     await update.effective_message.reply_text(reply, reply_markup=keyboard)
+    await memory_service.add_message("assistant", reply)
 
 
 async def _handle_reminder_list(update, context, lang):
     reminders = await reminder_service.list_pending()
     if not reminders:
-        await update.effective_message.reply_text("No pending reminders.")
+        reply = "No pending reminders."
+        await update.effective_message.reply_text(reply)
         return
 
     lines = []
     keyboard_rows = []
     for r in reminders:
-        lines.append(f"• {r.remind_at[:16]} — {r.description}")
+        display_time = _to_kl(r.remind_at)
+        lines.append(f"• {display_time} — {r.description}")
         keyboard_rows.append([
             InlineKeyboardButton(
                 f"Cancel: {r.description[:20]}",
                 callback_data=f"cancel_reminder:{r.job_id}"
             )
         ])
-    text = "Pending reminders:\n" + "\n".join(lines)
-    await update.effective_message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard_rows))
+    reply = "Pending reminders:\n" + "\n".join(lines)
+    await update.effective_message.reply_text(reply, reply_markup=InlineKeyboardMarkup(keyboard_rows))
 
 
 async def _handle_reminder_cancel(update, context, entities, lang, original_text):
@@ -183,7 +237,6 @@ async def _handle_reminder_cancel(update, context, entities, lang, original_text
         await update.effective_message.reply_text("No pending reminders to cancel.")
         return
 
-    # Fuzzy match via Claude
     options = "\n".join(f"{r.job_id}: {r.description}" for r in reminders)
     match_raw = claude_service.chat(
         system="Return only the job_id of the reminder that best matches the user's request. No other text.",
@@ -197,10 +250,8 @@ async def _handle_reminder_cancel(update, context, entities, lang, original_text
         jobs.get_scheduler().remove_job(job_id)
     except Exception:
         pass
-    if cancelled:
-        await update.effective_message.reply_text("Reminder cancelled.")
-    else:
-        await update.effective_message.reply_text("Could not find that reminder.")
+    reply = "Reminder cancelled." if cancelled else "Could not find that reminder."
+    await update.effective_message.reply_text(reply)
 
 
 async def _handle_calendar_create(update, context, entities, lang):
@@ -213,14 +264,16 @@ async def _handle_calendar_create(update, context, entities, lang):
         return
 
     event = await calendar_service.create_event(name, time_iso, int(duration))
+    display_time = _to_kl(time_iso)
     reply = claude_service.chat(
         system=f"Confirm a calendar event was created. Be brief. Respond in language: {lang}.",
-        user=f"Event '{name}' created at {time_iso} for {duration} minutes.",
+        user=f"Event '{name}' created at {display_time} for {duration} minutes.",
     )
     keyboard = InlineKeyboardMarkup([[
         InlineKeyboardButton("Cancel event", callback_data=f"cancel_event:{event['id']}")
     ]])
     await update.effective_message.reply_text(reply, reply_markup=keyboard)
+    await memory_service.add_message("assistant", reply)
 
 
 async def _handle_calendar_reschedule(update, context, entities, lang, original_text):
@@ -237,9 +290,9 @@ async def _handle_calendar_reschedule(update, context, entities, lang, original_
         return
 
     await calendar_service.reschedule_event(event["id"], new_time, duration)
-    await update.effective_message.reply_text(
-        f"Rescheduled '{event.get('summary')}' to {new_time[:16]}."
-    )
+    display_time = _to_kl(new_time)
+    reply = f"Rescheduled '{event.get('summary')}' to {display_time}."
+    await update.effective_message.reply_text(reply)
 
 
 async def _handle_calendar_cancel(update, context, entities, lang, original_text):
@@ -266,10 +319,9 @@ async def _handle_calendar_list(update, context, lang):
 
 async def _handle_note_save(update, context, entities, lang, text):
     topic = entities.get("topic")
-    note = await notes_service.save(text, topic=topic, language=lang)
-    await update.effective_message.reply_text(
-        f"Note saved." + (f" Topic: {topic}" if topic else "")
-    )
+    await notes_service.save(text, topic=topic, language=lang)
+    reply = "Note saved." + (f" Topic: {topic}" if topic else "")
+    await update.effective_message.reply_text(reply)
 
 
 async def _handle_note_retrieve(update, context, entities, lang):
@@ -284,6 +336,34 @@ async def _handle_email_check(update, context, lang):
     emails = await gmail_service.poll_new_emails()
     digest = gmail_service.format_email_digest(emails)
     await send_long_message(context.bot, update.effective_chat.id, digest)
+
+
+async def _handle_email_overview(update, context, lang):
+    await update.effective_message.reply_text("Fetching inbox overview...")
+    overview = await gmail_service.get_inbox_overview(max_results=10)
+    await send_long_message(context.bot, update.effective_chat.id, overview)
+
+
+async def _handle_email_send(update, context, entities, lang, text):
+    to = entities.get("email_to")
+    subject = entities.get("email_subject") or "Message from your PA"
+    body = entities.get("email_body") or text
+
+    if not to:
+        await update.effective_message.reply_text(
+            "Who should I send it to? Please provide an email address."
+        )
+        return
+
+    await update.effective_message.reply_text(f"Sending email to {to}...")
+    try:
+        await gmail_service.send_email(to=to, subject=subject, body=body)
+        reply = f"Email sent to {to}."
+        await update.effective_message.reply_text(reply)
+        await memory_service.add_message("assistant", reply)
+    except Exception as exc:
+        logger.error("Failed to send email: %s", exc)
+        await update.effective_message.reply_text(f"Failed to send email: {exc}")
 
 
 async def _handle_doc_generate(update, context, entities, lang, text):
@@ -312,37 +392,13 @@ async def _handle_doc_generate(update, context, entities, lang, text):
         cleanup(doc_path)
 
 
-async def _handle_email_overview(update, context, lang):
-    await update.effective_message.reply_text("Fetching inbox overview...")
-    overview = await gmail_service.get_inbox_overview(max_results=10)
-    await send_long_message(context.bot, update.effective_chat.id, overview)
-
-
-async def _handle_email_send(update, context, entities, lang, text):
-    to = entities.get("email_to")
-    subject = entities.get("email_subject") or "Message from your PA"
-    body = entities.get("email_body") or text
-
-    if not to:
-        await update.effective_message.reply_text(
-            "Who should I send it to? Please provide an email address or name."
-        )
-        return
-
-    await update.effective_message.reply_text(f"Sending email to {to}...")
-    try:
-        await gmail_service.send_email(to=to, subject=subject, body=body)
-        await update.effective_message.reply_text(f"Email sent to {to}.")
-    except Exception as exc:
-        logger.error("Failed to send email: %s", exc)
-        await update.effective_message.reply_text(f"Failed to send email: {exc}")
-
-
 async def _handle_general_chat(update, context, lang, text):
+    history = await memory_service.get_history(limit=20)
     system = (
         "You are a smart, efficient personal assistant for a busy executive. "
         "Be concise and professional. "
         f"Respond in language: {lang}."
     )
-    reply = claude_service.chat(system=system, user=text)
+    reply = claude_service.chat_with_history(system=system, history=history, user=text)
     await send_long_message(context.bot, update.effective_chat.id, reply)
+    await memory_service.add_message("assistant", reply)

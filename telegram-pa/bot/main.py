@@ -1,4 +1,3 @@
-import asyncio
 import logging
 import os
 
@@ -38,16 +37,42 @@ async def _gmail_poll_job(bot) -> None:
         logger.error("Gmail poll error: %s", exc)
 
 
+async def _daily_overview_job(bot) -> None:
+    try:
+        overview = await gmail_service.get_inbox_overview(max_results=10)
+        await send_long_message(bot, ALLOWED_USER_ID, f"Good morning! Here's your inbox overview:\n\n{overview}")
+    except Exception as exc:
+        logger.error("Daily overview error: %s", exc)
+
+
 async def post_init(application: Application) -> None:
     await init_db()
     logger.info("Database initialised")
 
-    scheduler = jobs.init_scheduler(application.bot)
+    bot = application.bot
+    scheduler = jobs.init_scheduler(bot)
 
     await jobs.restore_pending_reminders()
 
-    bot = application.bot
-    jobs.start_gmail_poll_job(lambda: asyncio.create_task(_gmail_poll_job(bot)))
+    # Gmail poll — use async-aware wrapper so APScheduler doesn't choke on coroutines
+    import asyncio
+
+    async def _poll_wrapper():
+        await _gmail_poll_job(bot)
+
+    async def _overview_wrapper():
+        await _daily_overview_job(bot)
+
+    def _run_poll():
+        loop = asyncio.get_event_loop()
+        loop.create_task(_poll_wrapper())
+
+    def _run_overview():
+        loop = asyncio.get_event_loop()
+        loop.create_task(_overview_wrapper())
+
+    jobs.start_gmail_poll_job(_run_poll)
+    jobs.start_daily_overview_job(_run_overview)
 
     scheduler.start()
     logger.info("Scheduler started")

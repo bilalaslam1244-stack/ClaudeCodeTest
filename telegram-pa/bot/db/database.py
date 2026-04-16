@@ -49,5 +49,13 @@ async def init_db() -> None:
                 key   TEXT PRIMARY KEY,
                 value TEXT NOT NULL
             );
+
+            CREATE TABLE IF NOT EXISTS conversation_history (
+                id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id    INTEGER NOT NULL,
+                role       TEXT    NOT NULL,
+                content    TEXT    NOT NULL,
+                created_at TEXT    NOT NULL
+            );
         """)
         await db.commit()

@@ -3,10 +3,11 @@ import logging
 from datetime import datetime, timezone
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.date import DateTrigger
 from apscheduler.triggers.interval import IntervalTrigger
 
-from bot.config import ALLOWED_USER_ID, GMAIL_POLL_INTERVAL_MINUTES
+from bot.config import ALLOWED_USER_ID, GMAIL_POLL_INTERVAL_MINUTES, BOSS_TIMEZONE
 from bot.services import reminder_service
 
 logger = logging.getLogger(__name__)
@@ -70,5 +71,15 @@ def start_gmail_poll_job(poll_callback) -> None:
         poll_callback,
         trigger=IntervalTrigger(minutes=GMAIL_POLL_INTERVAL_MINUTES),
         id="gmail_poll",
+        replace_existing=True,
+    )
+
+
+def start_daily_overview_job(overview_callback) -> None:
+    """Fire every day at 7:00 AM KL local time."""
+    _scheduler.add_job(
+        overview_callback,
+        trigger=CronTrigger(hour=7, minute=0, timezone=BOSS_TIMEZONE),
+        id="daily_overview",
         replace_existing=True,
     )

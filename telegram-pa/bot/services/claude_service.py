@@ -33,3 +33,20 @@ def chat(
 def chat_with_intent(intent: str, system: str, user: str, max_tokens: int = 4096) -> str:
     model = select_model(intent)
     return chat(system=system, user=user, model=model, max_tokens=max_tokens)
+
+
+def chat_with_history(
+    system: str,
+    history: list[dict],
+    user: str,
+    model: str | None = None,
+    max_tokens: int = 2048,
+) -> str:
+    messages = list(history) + [{"role": "user", "content": user}]
+    response = _client.messages.create(
+        model=model or CLAUDE_HAIKU_MODEL,
+        max_tokens=max_tokens,
+        system=system,
+        messages=messages,
+    )
+    return response.content[0].text

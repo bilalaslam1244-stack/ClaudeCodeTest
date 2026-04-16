@@ -24,6 +24,7 @@ VALID_INTENTS = {
     "email_overview",
     "doc_generate",
     "meeting_minutes",
+    "url_summarize",
     "general_chat",
 }
 
