@@ -217,6 +217,9 @@ async def handle_message(
     elif intent == "email_send":
         await _handle_email_send(update, context, entities, lang, text)
 
+    elif intent == "daily_overview":
+        await _handle_daily_overview(update, context, lang)
+
     elif intent == "doc_generate":
         await _handle_doc_generate(update, context, entities, lang, text)
 
@@ -403,6 +406,50 @@ async def _handle_email_overview(update, context, entities, lang):
     await update.effective_message.reply_text("Fetching inbox overview...")
     overview = await gmail_service.get_inbox_overview(max_results=max_results)
     await send_long_message(context.bot, update.effective_chat.id, overview)
+
+
+async def _handle_daily_overview(update, context, lang):
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+    sections = []
+
+    # Today's calendar events
+    try:
+        tz = ZoneInfo(BOSS_TIMEZONE)
+        today = datetime.now(tz).date()
+        events = await calendar_service.list_events(days_ahead=1)
+        todays = []
+        for e in events:
+            start = e.get("start", {})
+            dt_str = start.get("dateTime") or start.get("date", "")
+            try:
+                dt = datetime.fromisoformat(dt_str.replace("Z", "+00:00")).astimezone(tz)
+                if dt.date() == today:
+                    todays.append((dt, e.get("summary", "(no title)")))
+            except Exception:
+                pass
+        if todays:
+            lines = ["Your schedule today:"]
+            for dt, title in sorted(todays, key=lambda x: x[0]):
+                lines.append(f"  {dt.strftime('%H:%M')} — {title}")
+            sections.append("\n".join(lines))
+        else:
+            sections.append("Nothing on the calendar today.")
+    except Exception as exc:
+        logger.error("Daily overview calendar error: %s", exc)
+        sections.append("Couldn't fetch calendar.")
+
+    # Recent emails
+    try:
+        digest = await gmail_service.get_emails_summary(max_results=5)
+        sections.append(f"Inbox (last 5):\n{digest}")
+    except Exception as exc:
+        logger.error("Daily overview email error: %s", exc)
+        sections.append("Couldn't fetch emails.")
+
+    reply = "\n\n".join(sections)
+    await send_long_message(context.bot, update.effective_chat.id, reply)
+    await memory_service.add_message("assistant", reply)
 
 
 _EMAIL_RE = re.compile(r"^[\w.+-]+@[\w.-]+\.\w+$")
