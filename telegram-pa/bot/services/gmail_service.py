@@ -30,7 +30,7 @@ Mark NOT important if: newsletters, promotions, automated notifications, social 
 
 
 def _build_service_sync(creds):
-    return build("gmail", "v1", credentials=creds)
+    return build("gmail", "v1", credentials=creds, cache_discovery=False)
 
 
 @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))

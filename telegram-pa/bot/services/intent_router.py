@@ -40,6 +40,13 @@ email_check | email_summarize | email_send | email_overview |
 doc_generate | meeting_minutes |
 general_chat
 
+Intent definitions (use these to disambiguate):
+- email_check: user wants to READ or FETCH emails, with or without a count ("give me last 3 emails", "show me my emails", "any new emails", "check emails")
+- email_summarize: user explicitly wants a SUMMARY or digest of emails ("summarize my emails", "what are the important emails")
+- email_overview: user wants a QUICK LIST of subjects/senders only, no AI summary ("what's in my inbox", "inbox overview")
+- email_send: user wants to SEND an email
+- IMPORTANT: "give me last N emails" or "show me N emails" → email_check (not email_overview)
+
 Return this exact JSON schema:
 {{
   "intent": "<one of the intents above>",

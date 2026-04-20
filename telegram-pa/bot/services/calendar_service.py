@@ -10,7 +10,7 @@ from bot.config import BOSS_TIMEZONE
 
 
 def _build_service_sync(creds):
-    return build("calendar", "v3", credentials=creds)
+    return build("calendar", "v3", credentials=creds, cache_discovery=False)
 
 
 @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
