@@ -257,8 +257,8 @@ async def _handle_raw_file(update, context, tmp_path: str, file_name: str, capti
         await update.effective_message.reply_text("The file appears to be empty.")
         return
 
-    # Store document content in conversation memory (truncated to 5000 chars)
-    content_for_memory = raw_content[:5000] + ("\n...[content truncated]" if len(raw_content) > 5000 else "")
+    # Store document content in conversation memory (truncated to 80000 chars — covers ~50+ pages)
+    content_for_memory = raw_content[:80000] + ("\n...[document truncated — very large file]" if len(raw_content) > 80000 else "")
     doc_memory_entry = f"[DOCUMENT: {file_name}]\n{content_for_memory}"
     if caption:
         doc_memory_entry = f"[DOCUMENT: {file_name}] (user note: {caption})\n{content_for_memory}"
