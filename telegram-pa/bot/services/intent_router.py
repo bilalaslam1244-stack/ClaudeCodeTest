@@ -51,6 +51,7 @@ Return this exact JSON schema:
     "output_format": "<docx|pdf|text|null>",
     "calendar_event_name": "<event title, or null>",
     "duration_minutes": <integer or null>,
+    "count": <integer number of items requested (e.g. "latest 3 emails" → 3), or null>,
     "person": "<person name, or null>",
     "email_to": "<recipient email address or name, or null>",
     "email_subject": "<email subject line, or null>",

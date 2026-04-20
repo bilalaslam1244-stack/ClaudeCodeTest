@@ -212,7 +212,7 @@ async def handle_message(
         await _handle_email_check(update, context, entities, lang)
 
     elif intent == "email_overview":
-        await _handle_email_overview(update, context, lang)
+        await _handle_email_overview(update, context, entities, lang)
 
     elif intent == "email_send":
         await _handle_email_send(update, context, entities, lang, text)
@@ -381,18 +381,27 @@ async def _handle_note_retrieve(update, context, entities, lang):
 
 async def _handle_email_check(update, context, entities, lang):
     from_filter = entities.get("person") or entities.get("email_to")
+    try:
+        max_results = int(entities.get("count") or 10)
+        max_results = max(1, min(max_results, 30))
+    except (TypeError, ValueError):
+        max_results = 10
     if from_filter:
         await update.effective_message.reply_text(f"Fetching emails from {from_filter}...")
     else:
-        await update.effective_message.reply_text("Fetching and summarizing latest emails...")
-    digest = await gmail_service.get_emails_summary(max_results=10, from_filter=from_filter)
+        await update.effective_message.reply_text(f"Fetching and summarizing latest {max_results} email(s)...")
+    digest = await gmail_service.get_emails_summary(max_results=max_results, from_filter=from_filter)
     await send_long_message(context.bot, update.effective_chat.id, digest)
 
 
-async def _handle_email_overview(update, context, lang):
+async def _handle_email_overview(update, context, entities, lang):
+    try:
+        max_results = int(entities.get("count") or 10)
+        max_results = max(1, min(max_results, 30))
+    except (TypeError, ValueError):
+        max_results = 10
     await update.effective_message.reply_text("Fetching inbox overview...")
-    # Quick overview: subject + snippet only, no summarization
-    overview = await gmail_service.get_inbox_overview(max_results=10)
+    overview = await gmail_service.get_inbox_overview(max_results=max_results)
     await send_long_message(context.bot, update.effective_chat.id, overview)
 
 

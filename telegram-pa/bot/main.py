@@ -38,11 +38,51 @@ async def _gmail_poll_job(bot) -> None:
 
 
 async def _daily_overview_job(bot) -> None:
+    from bot.services import calendar_service
+    from zoneinfo import ZoneInfo
+    from datetime import datetime
+    from bot.config import BOSS_TIMEZONE
+
+    sections = ["Good morning! Here's your daily overview:\n"]
+
+    # Today's calendar events
     try:
-        overview = await gmail_service.get_inbox_overview(max_results=10)
-        await send_long_message(bot, ALLOWED_USER_ID, f"Good morning! Here's your inbox overview:\n\n{overview}")
+        events = await calendar_service.list_events(days_ahead=1)
+        tz = ZoneInfo(BOSS_TIMEZONE)
+        today = datetime.now(tz).date()
+        todays_events = []
+        for e in events:
+            start = e.get("start", {})
+            dt_str = start.get("dateTime") or start.get("date", "")
+            try:
+                dt = datetime.fromisoformat(dt_str.replace("Z", "+00:00")).astimezone(tz)
+                if dt.date() == today:
+                    todays_events.append((dt, e))
+            except Exception:
+                pass
+        if todays_events:
+            lines = ["Calendar today:"]
+            for dt, e in sorted(todays_events, key=lambda x: x[0]):
+                lines.append(f"  • {dt.strftime('%H:%M')} — {e.get('summary', '(no title)')}")
+            sections.append("\n".join(lines))
+        else:
+            sections.append("Calendar today: No events scheduled.")
     except Exception as exc:
-        logger.error("Daily overview error: %s", exc)
+        logger.error("Daily overview calendar error: %s", exc)
+        sections.append("Calendar today: Could not fetch events.")
+
+    # Inbox highlights
+    try:
+        overview = await gmail_service.get_inbox_overview(max_results=5)
+        sections.append(f"Inbox highlights:\n{overview}")
+    except Exception as exc:
+        logger.error("Daily overview inbox error: %s", exc)
+        sections.append("Inbox: Could not fetch emails.")
+
+    try:
+        await send_long_message(bot, ALLOWED_USER_ID, "\n\n".join(sections))
+    except Exception as exc:
+        logger.error("Daily overview send error: %s", exc)
 
 
 async def post_init(application: Application) -> None:
@@ -54,25 +94,14 @@ async def post_init(application: Application) -> None:
 
     await jobs.restore_pending_reminders()
 
-    # Gmail poll — use async-aware wrapper so APScheduler doesn't choke on coroutines
-    import asyncio
-
     async def _poll_wrapper():
         await _gmail_poll_job(bot)
 
     async def _overview_wrapper():
         await _daily_overview_job(bot)
 
-    def _run_poll():
-        loop = asyncio.get_event_loop()
-        loop.create_task(_poll_wrapper())
-
-    def _run_overview():
-        loop = asyncio.get_event_loop()
-        loop.create_task(_overview_wrapper())
-
-    jobs.start_gmail_poll_job(_run_poll)
-    jobs.start_daily_overview_job(_run_overview)
+    jobs.start_gmail_poll_job(_poll_wrapper)
+    jobs.start_daily_overview_job(_overview_wrapper)
 
     scheduler.start()
     logger.info("Scheduler started")
