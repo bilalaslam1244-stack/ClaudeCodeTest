@@ -103,7 +103,7 @@ async def _handle_audio(update, context, tmp_path: str, file_name: str, caption:
         await handle_message(update, context, audio_path_override=tmp_path)
 
 
-_MAX_VISION_PAGES = 3  # cost guard: max PDF pages sent to Claude vision
+_VISION_BATCH_SIZE = 8  # pages per Claude vision API call
 
 
 def _extract_pdf_text(path: str) -> str:
@@ -118,17 +118,26 @@ def _extract_pdf_text(path: str) -> str:
         return ""
 
 
-def _pdf_to_images_b64(path: str, max_pages: int = _MAX_VISION_PAGES) -> list[str]:
-    """Render PDF pages to base64 PNG images for Claude vision."""
+def _pdf_page_count(path: str) -> int:
+    try:
+        import fitz
+        doc = fitz.open(path)
+        n = doc.page_count
+        doc.close()
+        return n
+    except Exception:
+        return 0
+
+
+def _pdf_pages_to_images_b64(path: str, start: int, end: int) -> list[str]:
+    """Render a page range [start, end) to base64 PNG images for Claude vision."""
     import base64
     import fitz
-    mat = fitz.Matrix(1.5, 1.5)  # 1.5x zoom — good quality, reasonable size
+    mat = fitz.Matrix(1.2, 1.2)  # balance between quality and payload size
     doc = fitz.open(path)
     images = []
-    for i, page in enumerate(doc):
-        if i >= max_pages:
-            break
-        pix = page.get_pixmap(matrix=mat)
+    for i in range(start, min(end, doc.page_count)):
+        pix = doc[i].get_pixmap(matrix=mat)
         images.append(base64.standard_b64encode(pix.tobytes("png")).decode())
     doc.close()
     return images
@@ -146,30 +155,46 @@ async def _handle_raw_file(update, context, tmp_path: str, file_name: str, capti
         raw_content = await asyncio.to_thread(_extract_pdf_text, tmp_path)
 
         if not raw_content:
-            await update.effective_message.reply_text(
-                f"This looks like a scanned PDF — analysing the first {_MAX_VISION_PAGES} pages..."
-            )
-            images = await asyncio.to_thread(_pdf_to_images_b64, tmp_path)
-            if not images:
+            total_pages = await asyncio.to_thread(_pdf_page_count, tmp_path)
+            if total_pages == 0:
                 await update.effective_message.reply_text(
                     "Couldn't read this PDF. Try exporting with a text layer or paste the content directly."
                 )
                 return
-            system = (
-                "You are a document analyst. Extract ALL meaningful content from these document pages verbatim — "
-                "every name, date, figure, table, and paragraph. Do not summarise yet; just extract faithfully."
+
+            await update.effective_message.reply_text(
+                f"Scanned PDF detected ({total_pages} pages) — reading all pages now, this may take a moment..."
             )
-            vision_prompt = f"Extract all content from this document: {file_name}"
+
+            system = (
+                "You are a document analyst. Extract ALL text, figures, tables, and data from these pages verbatim. "
+                "Preserve numbers, names, dates, and structure exactly as they appear. Do not summarise."
+            )
+            extracted_parts = []
             try:
-                raw_content = await asyncio.to_thread(
-                    claude_service.chat_with_vision, system, vision_prompt, images
-                )
+                for batch_start in range(0, total_pages, _VISION_BATCH_SIZE):
+                    batch_end = min(batch_start + _VISION_BATCH_SIZE, total_pages)
+                    images = await asyncio.to_thread(
+                        _pdf_pages_to_images_b64, tmp_path, batch_start, batch_end
+                    )
+                    if not images:
+                        continue
+                    batch_label = f"pages {batch_start + 1}–{batch_end}"
+                    part = await asyncio.to_thread(
+                        claude_service.chat_with_vision,
+                        system,
+                        f"Extract all content from {batch_label} of '{file_name}'.",
+                        images,
+                    )
+                    extracted_parts.append(f"--- {batch_label} ---\n{part}")
             except Exception as exc:
                 logger.error("Vision analysis failed: %s", exc)
                 await update.effective_message.reply_text(
-                    "Vision analysis failed. Try exporting the PDF with selectable text."
+                    "Vision analysis failed partway. Try exporting the PDF with selectable text."
                 )
                 return
+
+            raw_content = "\n\n".join(extracted_parts)
     else:
         try:
             with open(tmp_path, "r", encoding="utf-8", errors="replace") as f:
