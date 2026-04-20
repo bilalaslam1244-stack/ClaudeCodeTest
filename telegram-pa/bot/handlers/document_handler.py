@@ -6,7 +6,7 @@ import tempfile
 from telegram import Update
 from telegram.ext import ContextTypes
 
-from bot.services import doc_service, whisper_service
+from bot.services import doc_service, whisper_service, memory_service
 from bot.utils.formatting import send_long_message
 from bot.utils.file_utils import cleanup
 
@@ -135,47 +135,39 @@ def _pdf_to_images_b64(path: str, max_pages: int = _MAX_VISION_PAGES) -> list[st
 
 
 async def _handle_raw_file(update, context, tmp_path: str, file_name: str, caption: str) -> None:
-    """Generate a report from an uploaded file. Supports text files and PDFs (text or scanned)."""
+    """Read an uploaded file into memory and ask the user what to do with it."""
     from bot.services import claude_service
 
     ext = os.path.splitext(file_name)[1].lower()
     raw_content = ""
-    used_vision = False
 
     if ext == ".pdf":
         await update.effective_message.reply_text("Reading your PDF...")
         raw_content = await asyncio.to_thread(_extract_pdf_text, tmp_path)
 
         if not raw_content:
-            # Scanned/image PDF — use Claude vision
             await update.effective_message.reply_text(
-                f"This looks like a scanned PDF. Analysing the first {_MAX_VISION_PAGES} pages with vision..."
+                f"This looks like a scanned PDF — analysing the first {_MAX_VISION_PAGES} pages..."
             )
             images = await asyncio.to_thread(_pdf_to_images_b64, tmp_path)
             if not images:
                 await update.effective_message.reply_text(
-                    "Couldn't read this PDF. Please export it with a text layer or copy-paste the content."
+                    "Couldn't read this PDF. Try exporting with a text layer or paste the content directly."
                 )
                 return
-            vision_prompt = (
-                f"The user uploaded '{file_name}'"
-                + (f" with note: {caption}" if caption else "")
-                + ". Extract and summarise all meaningful content from these pages. "
-                "Be thorough — capture figures, dates, names, and key data points."
-            )
             system = (
-                "You are a document analyst. Extract and summarise the content of the provided document pages. "
-                "Structure the output clearly with headings. Include all important figures and data."
+                "You are a document analyst. Extract ALL meaningful content from these document pages verbatim — "
+                "every name, date, figure, table, and paragraph. Do not summarise yet; just extract faithfully."
             )
+            vision_prompt = f"Extract all content from this document: {file_name}"
             try:
                 raw_content = await asyncio.to_thread(
                     claude_service.chat_with_vision, system, vision_prompt, images
                 )
-                used_vision = True
             except Exception as exc:
                 logger.error("Vision analysis failed: %s", exc)
                 await update.effective_message.reply_text(
-                    "Vision analysis failed. Please export the PDF with selectable text and try again."
+                    "Vision analysis failed. Try exporting the PDF with selectable text."
                 )
                 return
     else:
@@ -184,31 +176,27 @@ async def _handle_raw_file(update, context, tmp_path: str, file_name: str, capti
                 raw_content = f.read(20000)
         except Exception:
             await update.effective_message.reply_text(
-                "Couldn't read this file type. Please send a PDF, .txt, or .csv."
+                "Can't read this file type. Please send a PDF, .txt, or .csv."
             )
             return
 
-    if used_vision:
-        # Vision already produced a structured summary — send it directly
-        await send_long_message(context.bot, update.effective_chat.id, raw_content)
+    if not raw_content.strip():
+        await update.effective_message.reply_text("The file appears to be empty.")
         return
 
-    prompt = (
-        f"The user uploaded a file named '{file_name}'"
-        + (f" with note: {caption}" if caption else "")
-        + f"\n\nFile contents:\n{raw_content[:15000]}\n\n"
-        "Generate a professional report or summary based on this content."
+    # Store document content in conversation memory (truncated to 5000 chars)
+    content_for_memory = raw_content[:5000] + ("\n...[content truncated]" if len(raw_content) > 5000 else "")
+    doc_memory_entry = f"[DOCUMENT: {file_name}]\n{content_for_memory}"
+    if caption:
+        doc_memory_entry = f"[DOCUMENT: {file_name}] (user note: {caption})\n{content_for_memory}"
+
+    await memory_service.add_message("user", doc_memory_entry)
+
+    # Ask what to do — don't act yet
+    reply = (
+        f"Got it, I've read {file_name}. What would you like me to do with it?\n\n"
+        "I can: answer questions about it, summarise it, extract specific info, "
+        "generate a report or one-pager, or anything else — just say the word."
     )
-    await update.effective_message.reply_text("Generating document...")
-    content = await doc_service.generate_content(prompt)
-    doc_path = await doc_service.create_document(content, file_name, fmt="docx")
-    try:
-        with open(doc_path, "rb") as f:
-            await context.bot.send_document(
-                chat_id=update.effective_chat.id,
-                document=f,
-                filename=os.path.basename(doc_path),
-                caption="Here's your document.",
-            )
-    finally:
-        cleanup(doc_path)
+    await update.effective_message.reply_text(reply)
+    await memory_service.add_message("assistant", reply)

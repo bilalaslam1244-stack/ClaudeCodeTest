@@ -448,12 +448,19 @@ async def _handle_doc_generate(update, context, entities, lang, text):
     if fmt not in ("docx", "pdf", "text"):
         fmt = "docx"
 
-    await update.effective_message.reply_text("On it, generating your document...")
-    content = await doc_service.generate_content(text)
+    # Inject recently uploaded document content if available
+    doc_ctx = await memory_service.get_recent_document()
+    if doc_ctx:
+        prompt = f"{doc_ctx}\n\nUser request: {text}"
+    else:
+        prompt = text
+
+    await update.effective_message.reply_text("On it...")
+    content = await doc_service.generate_content(prompt)
 
     if content.startswith("DATA_REQUIRED:"):
         clarification = content[len("DATA_REQUIRED:"):].strip()
-        reply = f"I need the actual data to generate this. {clarification} Send it as text or attach a file."
+        reply = f"I need the actual data for this. {clarification} Send it as text or attach a file."
         await update.effective_message.reply_text(reply)
         await memory_service.add_message("assistant", reply)
         return
@@ -473,25 +480,26 @@ async def _handle_doc_generate(update, context, entities, lang, text):
                 filename=f"{title}.{fmt}",
                 caption="Here's your document.",
             )
-        await memory_service.add_message("assistant", f"[Generated {fmt.upper()} document titled '{title}' based on user-provided data]")
+        await memory_service.add_message("assistant", f"[Generated {fmt.upper()} titled '{title}']")
     finally:
         cleanup(doc_path)
 
 
 async def _handle_general_chat(update, context, lang, text):
-    history = await memory_service.get_history(limit=20)
+    history = await memory_service.get_history(limit=30)
     system = (
         "You are a smart, direct personal assistant for a busy executive. "
         f"Respond in language: {lang}. "
-        "Tone: natural, conversational, brief — like a competent human PA texting their boss. "
+        "Tone: natural, conversational, brief — like a capable human PA texting their boss. "
         "No bullet-point capability lists. No 'What's your next move?'. No corporate filler. "
-        "CRITICAL: Google OAuth2 is already configured. NEVER ask for credentials, API keys, or permissions. "
-        "NEVER claim you lack access to email or calendar. "
-        "Answer the user's current message directly. "
-        "Do NOT re-summarize or recap past actions from the conversation history unless the user specifically asks. "
-        "Entries in history prefixed with [Generated...] or [Fetched...] are action records — reference them only if asked. "
-        "If a previous message contains fetched web content (prefixed with '[I fetched ...'), "
-        "use that content to answer follow-up questions directly."
+        "CRITICAL: Google OAuth2 is pre-configured. NEVER ask for credentials or permissions. "
+        "NEVER claim you lack access to email, calendar, or documents. "
+        "Answer the user's current question directly and concisely. "
+        "Do NOT re-narrate or recap past actions unless the user specifically asks. "
+        "DOCUMENTS: If conversation history contains a [DOCUMENT: filename] entry, that IS the document "
+        "the user is referring to when they ask follow-up questions. Use its content to answer directly — "
+        "never say you don't have a document open or ask them to re-upload. "
+        "Entries prefixed with [Generated...] are completed action records — reference only if asked."
     )
     reply = claude_service.chat_with_history(system=system, history=history, user=text)
     await send_long_message(context.bot, update.effective_chat.id, reply)

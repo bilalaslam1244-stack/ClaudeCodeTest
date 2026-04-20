@@ -46,6 +46,15 @@ async def get_history(limit: int = WINDOW_SIZE) -> list[dict]:
     return [{"role": r["role"], "content": r["content"]} for r in reversed(rows)]
 
 
+async def get_recent_document(limit: int = 30) -> str | None:
+    """Return content of the most recently uploaded document from history, or None."""
+    history = await get_history(limit=limit)
+    for msg in reversed(history):
+        if msg["role"] == "user" and msg["content"].startswith("[DOCUMENT:"):
+            return msg["content"]
+    return None
+
+
 async def clear_history() -> None:
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute(
