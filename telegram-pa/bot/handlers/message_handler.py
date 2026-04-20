@@ -246,8 +246,8 @@ async def _handle_reminder_set(update, context, entities, lang, original_text):
 
     display_time = _to_kl(time_iso)
     reply = strip_markdown(claude_service.chat(
-        system=f"Confirm a reminder was set. Be brief. Respond in language: {lang}.",
-        user=f"Reminder: {description} at {display_time}",
+        system=f"You are a natural, human-sounding PA. Confirm this reminder in one short sentence, casually. Respond in language: {lang}.",
+        user=f"Reminder set: {description} at {display_time}",
     ))
     keyboard = InlineKeyboardMarkup([[
         InlineKeyboardButton("Cancel reminder", callback_data=f"cancel_reminder:{reminder.job_id}")
@@ -314,7 +314,7 @@ async def _handle_calendar_create(update, context, entities, lang):
     event = await calendar_service.create_event(name, time_iso, int(duration))
     display_time = _to_kl(time_iso)
     reply = strip_markdown(claude_service.chat(
-        system=f"Confirm a calendar event was created. Be brief. Respond in language: {lang}.",
+        system=f"You are a natural, human-sounding PA. Confirm this calendar event in one short casual sentence. Respond in language: {lang}.",
         user=f"Event '{name}' created at {display_time} for {duration} minutes.",
     ))
     keyboard = InlineKeyboardMarkup([[
@@ -448,11 +448,19 @@ async def _handle_doc_generate(update, context, entities, lang, text):
     if fmt not in ("docx", "pdf", "text"):
         fmt = "docx"
 
-    await update.effective_message.reply_text("Generating document...")
+    await update.effective_message.reply_text("On it, generating your document...")
     content = await doc_service.generate_content(text)
+
+    if content.startswith("DATA_REQUIRED:"):
+        clarification = content[len("DATA_REQUIRED:"):].strip()
+        reply = f"I need the actual data to generate this. {clarification} Send it as text or attach a file."
+        await update.effective_message.reply_text(reply)
+        await memory_service.add_message("assistant", reply)
+        return
 
     if fmt == "text":
         await send_long_message(context.bot, update.effective_chat.id, content)
+        await memory_service.add_message("assistant", f"[Generated text document based on: {text[:80]}]")
         return
 
     title = entities.get("description") or "Document"
@@ -463,8 +471,9 @@ async def _handle_doc_generate(update, context, entities, lang, text):
                 chat_id=update.effective_chat.id,
                 document=f,
                 filename=f"{title}.{fmt}",
-                caption="Document ready.",
+                caption="Here's your document.",
             )
+        await memory_service.add_message("assistant", f"[Generated {fmt.upper()} document titled '{title}' based on user-provided data]")
     finally:
         cleanup(doc_path)
 
@@ -472,17 +481,15 @@ async def _handle_doc_generate(update, context, entities, lang, text):
 async def _handle_general_chat(update, context, lang, text):
     history = await memory_service.get_history(limit=20)
     system = (
-        "You are a smart, efficient personal assistant for a busy executive. "
-        "Be concise and professional. "
+        "You are a smart, direct personal assistant for a busy executive. "
         f"Respond in language: {lang}. "
-        "CRITICAL: You already have full Google OAuth2 credentials configured for Gmail and Google Calendar. "
-        "NEVER ask for credentials, API keys, or permissions. NEVER say you lack access to email or calendar. "
-        "NEVER display a list of capabilities or ask 'what's your next move'. "
-        "If the user asks you to do something you can execute, just say you will do it or that the action "
-        "has been routed — do not pretend to do it in text. "
-        "Your capabilities (all pre-authorized, no setup needed): "
-        "email (read/summarize/send), Google Calendar (create/edit/cancel/list), "
-        "reminders, notes, document generation (docx/pdf), voice transcription, meeting minutes, URL summarization. "
+        "Tone: natural, conversational, brief — like a competent human PA texting their boss. "
+        "No bullet-point capability lists. No 'What's your next move?'. No corporate filler. "
+        "CRITICAL: Google OAuth2 is already configured. NEVER ask for credentials, API keys, or permissions. "
+        "NEVER claim you lack access to email or calendar. "
+        "Answer the user's current message directly. "
+        "Do NOT re-summarize or recap past actions from the conversation history unless the user specifically asks. "
+        "Entries in history prefixed with [Generated...] or [Fetched...] are action records — reference them only if asked. "
         "If a previous message contains fetched web content (prefixed with '[I fetched ...'), "
         "use that content to answer follow-up questions directly."
     )

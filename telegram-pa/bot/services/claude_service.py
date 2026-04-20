@@ -35,6 +35,28 @@ def chat_with_intent(intent: str, system: str, user: str, max_tokens: int = 4096
     return chat(system=system, user=user, model=model, max_tokens=max_tokens)
 
 
+def chat_with_vision(
+    system: str,
+    user_text: str,
+    images_b64: list[str],
+    model: str | None = None,
+    max_tokens: int = 4096,
+) -> str:
+    """Send text + images (base64 PNG) to Claude vision."""
+    content = [
+        {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": img}}
+        for img in images_b64
+    ]
+    content.append({"type": "text", "text": user_text})
+    response = _client.messages.create(
+        model=model or CLAUDE_SONNET_MODEL,
+        max_tokens=max_tokens,
+        system=system,
+        messages=[{"role": "user", "content": content}],
+    )
+    return response.content[0].text
+
+
 def chat_with_history(
     system: str,
     history: list[dict],

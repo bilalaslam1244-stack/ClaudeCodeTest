@@ -15,8 +15,11 @@ os.makedirs(OUTPUT_DIR, exist_ok=True)
 async def generate_content(prompt: str, intent: str = "doc_generate") -> str:
     system = (
         "You are an expert business writer and analyst. "
-        "Produce professional, well-structured content. "
-        "Use clear headings and bullet points where appropriate."
+        "Produce professional, well-structured content based ONLY on data and information the user provides. "
+        "Use clear headings and bullet points where appropriate. "
+        "CRITICAL: If the user's request contains no actual data, figures, or source material, "
+        "respond with exactly: DATA_REQUIRED: <one sentence describing what data is needed>. "
+        "Do NOT invent, estimate, or use placeholder numbers or made-up statistics."
     )
     return await asyncio.to_thread(
         claude_service.chat_with_intent, intent, system, prompt, 4096

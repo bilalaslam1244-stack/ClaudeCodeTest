@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import os
 import tempfile
@@ -102,21 +103,100 @@ async def _handle_audio(update, context, tmp_path: str, file_name: str, caption:
         await handle_message(update, context, audio_path_override=tmp_path)
 
 
-async def _handle_raw_file(update, context, tmp_path: str, file_name: str, caption: str) -> None:
-    """Generate a report from an uploaded text/data file."""
+_MAX_VISION_PAGES = 3  # cost guard: max PDF pages sent to Claude vision
+
+
+def _extract_pdf_text(path: str) -> str:
+    """Extract text from a text-layer PDF using PyMuPDF."""
     try:
-        with open(tmp_path, "r", encoding="utf-8", errors="replace") as f:
-            raw_content = f.read(20000)
+        import fitz
+        doc = fitz.open(path)
+        pages = [page.get_text() for page in doc]
+        doc.close()
+        return "\n\n".join(pages).strip()
     except Exception:
-        await update.effective_message.reply_text(
-            "Could not read the file. Please send a text-based file."
-        )
+        return ""
+
+
+def _pdf_to_images_b64(path: str, max_pages: int = _MAX_VISION_PAGES) -> list[str]:
+    """Render PDF pages to base64 PNG images for Claude vision."""
+    import base64
+    import fitz
+    mat = fitz.Matrix(1.5, 1.5)  # 1.5x zoom — good quality, reasonable size
+    doc = fitz.open(path)
+    images = []
+    for i, page in enumerate(doc):
+        if i >= max_pages:
+            break
+        pix = page.get_pixmap(matrix=mat)
+        images.append(base64.standard_b64encode(pix.tobytes("png")).decode())
+    doc.close()
+    return images
+
+
+async def _handle_raw_file(update, context, tmp_path: str, file_name: str, caption: str) -> None:
+    """Generate a report from an uploaded file. Supports text files and PDFs (text or scanned)."""
+    from bot.services import claude_service
+
+    ext = os.path.splitext(file_name)[1].lower()
+    raw_content = ""
+    used_vision = False
+
+    if ext == ".pdf":
+        await update.effective_message.reply_text("Reading your PDF...")
+        raw_content = await asyncio.to_thread(_extract_pdf_text, tmp_path)
+
+        if not raw_content:
+            # Scanned/image PDF — use Claude vision
+            await update.effective_message.reply_text(
+                f"This looks like a scanned PDF. Analysing the first {_MAX_VISION_PAGES} pages with vision..."
+            )
+            images = await asyncio.to_thread(_pdf_to_images_b64, tmp_path)
+            if not images:
+                await update.effective_message.reply_text(
+                    "Couldn't read this PDF. Please export it with a text layer or copy-paste the content."
+                )
+                return
+            vision_prompt = (
+                f"The user uploaded '{file_name}'"
+                + (f" with note: {caption}" if caption else "")
+                + ". Extract and summarise all meaningful content from these pages. "
+                "Be thorough — capture figures, dates, names, and key data points."
+            )
+            system = (
+                "You are a document analyst. Extract and summarise the content of the provided document pages. "
+                "Structure the output clearly with headings. Include all important figures and data."
+            )
+            try:
+                raw_content = await asyncio.to_thread(
+                    claude_service.chat_with_vision, system, vision_prompt, images
+                )
+                used_vision = True
+            except Exception as exc:
+                logger.error("Vision analysis failed: %s", exc)
+                await update.effective_message.reply_text(
+                    "Vision analysis failed. Please export the PDF with selectable text and try again."
+                )
+                return
+    else:
+        try:
+            with open(tmp_path, "r", encoding="utf-8", errors="replace") as f:
+                raw_content = f.read(20000)
+        except Exception:
+            await update.effective_message.reply_text(
+                "Couldn't read this file type. Please send a PDF, .txt, or .csv."
+            )
+            return
+
+    if used_vision:
+        # Vision already produced a structured summary — send it directly
+        await send_long_message(context.bot, update.effective_chat.id, raw_content)
         return
 
     prompt = (
         f"The user uploaded a file named '{file_name}'"
         + (f" with note: {caption}" if caption else "")
-        + f"\n\nFile contents:\n{raw_content}\n\n"
+        + f"\n\nFile contents:\n{raw_content[:15000]}\n\n"
         "Generate a professional report or summary based on this content."
     )
     await update.effective_message.reply_text("Generating document...")
@@ -128,7 +208,7 @@ async def _handle_raw_file(update, context, tmp_path: str, file_name: str, capti
                 chat_id=update.effective_chat.id,
                 document=f,
                 filename=os.path.basename(doc_path),
-                caption="Document ready.",
+                caption="Here's your document.",
             )
     finally:
         cleanup(doc_path)
