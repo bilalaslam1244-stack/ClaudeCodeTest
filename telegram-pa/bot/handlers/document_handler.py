@@ -103,19 +103,35 @@ async def _handle_audio(update, context, tmp_path: str, file_name: str, caption:
         await handle_message(update, context, audio_path_override=tmp_path)
 
 
-_VISION_BATCH_SIZE = 8  # pages per Claude vision API call
+_VISION_BATCH_SIZE = 5   # pages per Claude Haiku vision call (last-resort only)
+_MIN_TEXT_CHARS = 200    # threshold to consider text extraction successful
 
 
 def _extract_pdf_text(path: str) -> str:
-    """Extract text from a text-layer PDF using PyMuPDF."""
+    """Try PyMuPDF then pdfplumber to extract text from a text-layer PDF."""
+    # Method 1: PyMuPDF
     try:
         import fitz
         doc = fitz.open(path)
-        pages = [page.get_text() for page in doc]
+        text = "\n\n".join(page.get_text() for page in doc).strip()
         doc.close()
-        return "\n\n".join(pages).strip()
+        if len(text) >= _MIN_TEXT_CHARS:
+            return text
     except Exception:
-        return ""
+        pass
+
+    # Method 2: pdfplumber (sometimes succeeds where PyMuPDF misses)
+    try:
+        import pdfplumber
+        with pdfplumber.open(path) as pdf:
+            parts = [p.extract_text() or "" for p in pdf.pages]
+        text = "\n\n".join(parts).strip()
+        if len(text) >= _MIN_TEXT_CHARS:
+            return text
+    except Exception:
+        pass
+
+    return ""
 
 
 def _pdf_page_count(path: str) -> int:
@@ -129,11 +145,35 @@ def _pdf_page_count(path: str) -> int:
         return 0
 
 
+def _ocr_pdf_tesseract(path: str) -> str:
+    """OCR every page with local Tesseract — free, fast, no API cost."""
+    import fitz
+    try:
+        import pytesseract
+        from PIL import Image
+        import io
+    except ImportError:
+        return ""
+
+    mat = fitz.Matrix(2.0, 2.0)  # 2x zoom for OCR accuracy
+    doc = fitz.open(path)
+    pages_text = []
+    for page in doc:
+        pix = page.get_pixmap(matrix=mat)
+        img = Image.open(io.BytesIO(pix.tobytes("png")))
+        text = pytesseract.image_to_string(img, lang="eng+chi_sim+msa",
+                                           config="--psm 3")
+        if text.strip():
+            pages_text.append(text)
+    doc.close()
+    return "\n\n".join(pages_text).strip()
+
+
 def _pdf_pages_to_images_b64(path: str, start: int, end: int) -> list[str]:
-    """Render a page range [start, end) to base64 PNG images for Claude vision."""
+    """Render a page range to base64 PNG for Claude vision (last resort)."""
     import base64
     import fitz
-    mat = fitz.Matrix(1.2, 1.2)  # balance between quality and payload size
+    mat = fitz.Matrix(1.0, 1.0)  # 1x — lower cost, still readable
     doc = fitz.open(path)
     images = []
     for i in range(start, min(end, doc.page_count)):
@@ -162,39 +202,47 @@ async def _handle_raw_file(update, context, tmp_path: str, file_name: str, capti
                 )
                 return
 
+            # Try Tesseract OCR first — free, local, fast (~1-2s/page)
             await update.effective_message.reply_text(
-                f"Scanned PDF detected ({total_pages} pages) — reading all pages now, this may take a moment..."
+                f"Scanned PDF ({total_pages} pages) — running OCR locally, won't take long..."
             )
+            raw_content = await asyncio.to_thread(_ocr_pdf_tesseract, tmp_path)
 
-            system = (
-                "You are a document analyst. Extract ALL text, figures, tables, and data from these pages verbatim. "
-                "Preserve numbers, names, dates, and structure exactly as they appear. Do not summarise."
-            )
-            extracted_parts = []
-            try:
-                for batch_start in range(0, total_pages, _VISION_BATCH_SIZE):
-                    batch_end = min(batch_start + _VISION_BATCH_SIZE, total_pages)
-                    images = await asyncio.to_thread(
-                        _pdf_pages_to_images_b64, tmp_path, batch_start, batch_end
-                    )
-                    if not images:
-                        continue
-                    batch_label = f"pages {batch_start + 1}–{batch_end}"
-                    part = await asyncio.to_thread(
-                        claude_service.chat_with_vision,
-                        system,
-                        f"Extract all content from {batch_label} of '{file_name}'.",
-                        images,
-                    )
-                    extracted_parts.append(f"--- {batch_label} ---\n{part}")
-            except Exception as exc:
-                logger.error("Vision analysis failed: %s", exc)
+            if not raw_content:
+                # Tesseract not installed or failed — fall back to Claude Haiku vision
                 await update.effective_message.reply_text(
-                    "Vision analysis failed partway. Try exporting the PDF with selectable text."
+                    "Local OCR unavailable — using vision analysis (this will take a few minutes)..."
                 )
-                return
-
-            raw_content = "\n\n".join(extracted_parts)
+                system = (
+                    "Extract ALL text, figures, tables, and data from these pages verbatim. "
+                    "Preserve numbers, names, dates, and structure exactly. Do not summarise."
+                )
+                from bot.config import CLAUDE_HAIKU_MODEL
+                extracted_parts = []
+                try:
+                    for batch_start in range(0, total_pages, _VISION_BATCH_SIZE):
+                        batch_end = min(batch_start + _VISION_BATCH_SIZE, total_pages)
+                        images = await asyncio.to_thread(
+                            _pdf_pages_to_images_b64, tmp_path, batch_start, batch_end
+                        )
+                        if not images:
+                            continue
+                        batch_label = f"pages {batch_start + 1}–{batch_end}"
+                        part = await asyncio.to_thread(
+                            claude_service.chat_with_vision,
+                            system,
+                            f"Extract all content from {batch_label} of '{file_name}'.",
+                            images,
+                            CLAUDE_HAIKU_MODEL,
+                        )
+                        extracted_parts.append(f"--- {batch_label} ---\n{part}")
+                except Exception as exc:
+                    logger.error("Vision analysis failed: %s", exc)
+                    await update.effective_message.reply_text(
+                        "Vision analysis failed. Try exporting the PDF with a text layer."
+                    )
+                    return
+                raw_content = "\n\n".join(extracted_parts)
     else:
         try:
             with open(tmp_path, "r", encoding="utf-8", errors="replace") as f:
