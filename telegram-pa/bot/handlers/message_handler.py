@@ -18,6 +18,7 @@ from bot.services import (
     doc_service,
     memory_service,
     url_service,
+    mute_service,
 )
 from bot.scheduler import jobs
 from bot.utils.language import detect_language
@@ -216,6 +217,12 @@ async def handle_message(
 
     elif intent == "email_send":
         await _handle_email_send(update, context, entities, lang, text)
+
+    elif intent == "email_mute":
+        await _handle_email_mute(update, context, entities, text)
+
+    elif intent == "email_unmute":
+        await _handle_email_unmute(update, context, entities, text)
 
     elif intent == "daily_overview":
         await _handle_daily_overview(update, context, lang)
@@ -452,6 +459,31 @@ async def _handle_email_overview(update, context, entities, lang):
     await update.effective_message.reply_text("Fetching inbox overview...")
     overview = await gmail_service.get_inbox_overview(max_results=max_results)
     await send_long_message(context.bot, update.effective_chat.id, overview)
+
+
+async def _handle_email_mute(update, context, entities, original_text):
+    pattern = (entities.get("person") or entities.get("topic") or entities.get("description") or "").strip()
+    if not pattern:
+        await update.effective_message.reply_text("What sender or keyword should I mute? e.g. 'mute tender emails'")
+        return
+    await mute_service.mute(pattern)
+    muted = await mute_service.list_muted()
+    reply = f"Muted '{pattern}'. Emails matching that won't show up anymore.\nCurrently muted: {', '.join(muted)}"
+    await update.effective_message.reply_text(reply)
+    await memory_service.add_message("assistant", reply)
+
+
+async def _handle_email_unmute(update, context, entities, original_text):
+    pattern = (entities.get("person") or entities.get("topic") or entities.get("description") or "").strip()
+    if not pattern:
+        muted = await mute_service.list_muted()
+        reply = f"Currently muted: {', '.join(muted) if muted else 'nothing'}"
+        await update.effective_message.reply_text(reply)
+        return
+    removed = await mute_service.unmute(pattern)
+    reply = f"Unmuted '{pattern}'." if removed else f"'{pattern}' wasn't in the mute list."
+    await update.effective_message.reply_text(reply)
+    await memory_service.add_message("assistant", reply)
 
 
 async def _handle_daily_overview(update, context, lang):

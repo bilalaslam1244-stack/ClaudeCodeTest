@@ -4,6 +4,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 TELEGRAM_BOT_TOKEN: str = os.environ["TELEGRAM_BOT_TOKEN"]
+TELEGRAM_LOCAL_API_URL: str = os.getenv("TELEGRAM_LOCAL_API_URL", "")
 ANTHROPIC_API_KEY: str = os.environ["ANTHROPIC_API_KEY"]
 OPENAI_API_KEY: str = os.environ["OPENAI_API_KEY"]
 ALLOWED_USER_ID: int = int(os.environ["ALLOWED_USER_ID"])

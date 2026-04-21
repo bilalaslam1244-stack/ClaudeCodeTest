@@ -22,6 +22,8 @@ VALID_INTENTS = {
     "email_summarize",
     "email_send",
     "email_overview",
+    "email_mute",
+    "email_unmute",
     "daily_overview",
     "doc_generate",
     "meeting_minutes",
@@ -49,6 +51,8 @@ Intent definitions (use these to disambiguate):
 - email_summarize: user explicitly wants a SUMMARY or digest of emails ("summarize my emails", "what are the important emails")
 - email_overview: user wants a QUICK LIST of subjects/senders only, no AI summary ("what's in my inbox", "inbox overview")
 - email_send: user wants to SEND an email
+- email_mute: user wants to mute/block/hide emails from a sender or with a keyword ("mute tender emails", "block emails from X", "hide notifications from Y")
+- email_unmute: user wants to unmute/unblock a sender ("unmute tender", "stop blocking X")
 - IMPORTANT: "give me last N emails" or "show me N emails" → email_check (not email_overview)
 
 Return this exact JSON schema:

@@ -9,7 +9,7 @@ from telegram.ext import (
     filters,
 )
 
-from bot.config import TELEGRAM_BOT_TOKEN, ALLOWED_USER_ID, OUTPUT_DIR
+from bot.config import TELEGRAM_BOT_TOKEN, ALLOWED_USER_ID, OUTPUT_DIR, TELEGRAM_LOCAL_API_URL
 from bot.db.database import init_db
 from bot.handlers.message_handler import handle_message
 from bot.handlers.document_handler import handle_document
@@ -108,12 +108,11 @@ async def post_init(application: Application) -> None:
 
 
 def main() -> None:
-    application = (
-        Application.builder()
-        .token(TELEGRAM_BOT_TOKEN)
-        .post_init(post_init)
-        .build()
-    )
+    builder = Application.builder().token(TELEGRAM_BOT_TOKEN).post_init(post_init)
+    if TELEGRAM_LOCAL_API_URL:
+        builder = builder.base_url(TELEGRAM_LOCAL_API_URL)
+        logger.info("Using local Telegram Bot API: %s", TELEGRAM_LOCAL_API_URL)
+    application = builder.build()
 
     # Handlers — documents + audio files first, then voice notes + text
     application.add_handler(

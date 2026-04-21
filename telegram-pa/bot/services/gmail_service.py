@@ -127,6 +127,7 @@ async def poll_new_emails() -> list[dict]:
         await _save_poll_timestamp(now_ts)
         return []
 
+    from bot.services import mute_service
     important_emails = []
     for msg_ref in messages:
         try:
@@ -134,6 +135,9 @@ async def poll_new_emails() -> list[dict]:
             sender = _extract_header(msg, "From")
             subject = _extract_header(msg, "Subject")
             snippet = msg.get("snippet", "")
+
+            if await mute_service.is_muted(sender, subject):
+                continue
 
             score = await asyncio.to_thread(_score_importance_sync, sender, subject, snippet)
             if score.get("important"):
@@ -208,8 +212,11 @@ def _fetch_recent_sync(creds, max_results: int, from_filter: str | None) -> list
 
 async def get_emails_summary(max_results: int = 10, from_filter: str | None = None) -> str:
     """Fetch latest inbox emails and return AI-summarized digest. Used for on-demand checks."""
+    from bot.services import mute_service
     creds = await get_credentials()
-    emails = await asyncio.to_thread(_fetch_recent_sync, creds, max_results, from_filter)
+    emails = await asyncio.to_thread(_fetch_recent_sync, creds, max_results * 2, from_filter)
+    emails = [e for e in emails if not await mute_service.is_muted(e["sender"], e["subject"])]
+    emails = emails[:max_results]
     if not emails:
         suffix = f" from '{from_filter}'" if from_filter else ""
         return f"No emails found{suffix}."

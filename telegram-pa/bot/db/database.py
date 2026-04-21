@@ -57,5 +57,11 @@ async def init_db() -> None:
                 content    TEXT    NOT NULL,
                 created_at TEXT    NOT NULL
             );
+
+            CREATE TABLE IF NOT EXISTS muted_senders (
+                id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                pattern    TEXT    NOT NULL UNIQUE,
+                created_at TEXT    NOT NULL
+            );
         """)
         await db.commit()
