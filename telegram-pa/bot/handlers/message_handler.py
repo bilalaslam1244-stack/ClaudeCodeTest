@@ -200,7 +200,7 @@ async def handle_message(
         await _handle_calendar_cancel(update, context, entities, lang, text)
 
     elif intent == "calendar_list":
-        await _handle_calendar_list(update, context, lang)
+        await _handle_calendar_list(update, context, entities, lang)
 
     elif intent == "note_save":
         await _handle_note_save(update, context, entities, lang, text)
@@ -362,10 +362,56 @@ async def _handle_calendar_cancel(update, context, entities, lang, original_text
     )
 
 
-async def _handle_calendar_list(update, context, lang):
-    events = await calendar_service.list_events(days_ahead=7)
-    text = calendar_service.format_event_list(events)
+async def _handle_calendar_list(update, context, entities, lang):
+    from datetime import datetime, date
+    from zoneinfo import ZoneInfo
+
+    # Detect scope from time_iso or description
+    description = (entities.get("description") or "").lower()
+    time_iso = entities.get("time_iso") or ""
+    tz = ZoneInfo(BOSS_TIMEZONE)
+    today = datetime.now(tz).date()
+
+    if "today" in description or (time_iso and datetime.fromisoformat(time_iso.replace("Z", "+00:00")).astimezone(tz).date() == today):
+        days_ahead = 1
+        scope_label = "Today"
+    elif "tomorrow" in description:
+        days_ahead = 2
+        scope_label = "Tomorrow"
+    elif "month" in description:
+        days_ahead = 30
+        scope_label = "This month"
+    else:
+        days_ahead = 7
+        scope_label = "This week"
+
+    events = await calendar_service.list_events(days_ahead=days_ahead)
+
+    # Filter to exact scope
+    if days_ahead == 1:
+        events = [e for e in events if _event_date(e, tz) == today]
+    elif days_ahead == 2:
+        tomorrow = date(today.year, today.month, today.day + 1) if today.day < 28 else (today.replace(day=1) if today.month < 12 else date(today.year + 1, 1, 1))
+        from datetime import timedelta
+        tomorrow = today + timedelta(days=1)
+        events = [e for e in events if _event_date(e, tz) == tomorrow]
+
+    text = calendar_service.format_event_list(events, scope_label=scope_label)
     await send_long_message(context.bot, update.effective_chat.id, text)
+
+
+def _event_date(event: dict, tz) -> "date | None":
+    from datetime import datetime, date
+    start = event.get("start", {})
+    dt_str = start.get("dateTime") or start.get("date", "")
+    if not dt_str:
+        return None
+    try:
+        if "T" in dt_str:
+            return datetime.fromisoformat(dt_str.replace("Z", "+00:00")).astimezone(tz).date()
+        return date.fromisoformat(dt_str)
+    except Exception:
+        return None
 
 
 async def _handle_note_save(update, context, entities, lang, text):
@@ -429,9 +475,9 @@ async def _handle_daily_overview(update, context, lang):
             except Exception:
                 pass
         if todays:
-            lines = ["Your schedule today:"]
+            lines = [f"Your schedule today ({len(todays)} event(s)):"]
             for dt, title in sorted(todays, key=lambda x: x[0]):
-                lines.append(f"  {dt.strftime('%H:%M')} — {title}")
+                lines.append(f"  {dt.strftime('%H:%M')}  {title}")
             sections.append("\n".join(lines))
         else:
             sections.append("Nothing on the calendar today.")

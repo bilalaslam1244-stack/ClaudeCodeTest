@@ -107,18 +107,39 @@ async def cancel_event(event_id: str) -> None:
     await asyncio.to_thread(_delete_event_sync, creds, event_id)
 
 
-def format_event_list(events: list[dict], tz: str = BOSS_TIMEZONE) -> str:
+def format_event_list(events: list[dict], tz: str = BOSS_TIMEZONE, scope_label: str = "") -> str:
+    from zoneinfo import ZoneInfo
+    from collections import defaultdict
+
     if not events:
-        return "No upcoming events."
-    lines = []
+        return f"Nothing on the calendar{' for ' + scope_label.lower() if scope_label else ''}."
+
+    local_tz = ZoneInfo(tz)
+    by_day: dict = defaultdict(list)
+
     for e in events:
         start = e.get("start", {})
         dt_str = start.get("dateTime") or start.get("date", "")
-        if dt_str:
-            try:
-                dt = datetime.fromisoformat(dt_str.replace("Z", "+00:00"))
-                dt_str = dt.strftime("%a %d %b %Y, %H:%M")
-            except ValueError:
-                pass
-        lines.append(f"• {e.get('summary', '(no title)')} — {dt_str}")
-    return "\n".join(lines)
+        try:
+            if "T" in dt_str:
+                dt = datetime.fromisoformat(dt_str.replace("Z", "+00:00")).astimezone(local_tz)
+                day_key = dt.strftime("%A, %d %b")
+                time_str = dt.strftime("%H:%M")
+            else:
+                dt = datetime.fromisoformat(dt_str)
+                day_key = dt.strftime("%A, %d %b")
+                time_str = "All day"
+        except Exception:
+            day_key = "Unknown"
+            time_str = ""
+
+        by_day[day_key].append((time_str, e.get("summary", "(no title)")))
+
+    header = f"{scope_label} — {sum(len(v) for v in by_day.values())} event(s)\n" if scope_label else ""
+    lines = [header.rstrip()]
+    for day, items in by_day.items():
+        lines.append(f"\n{day}")
+        for time_str, title in sorted(items):
+            lines.append(f"  {time_str}  {title}")
+
+    return "\n".join(lines).strip()
