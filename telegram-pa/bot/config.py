@@ -22,6 +22,10 @@ GOOGLE_SCOPES = [
     "https://www.googleapis.com/auth/gmail.modify",
 ]
 
+ZOOM_ACCOUNT_ID: str = os.getenv("ZOOM_ACCOUNT_ID", "")
+ZOOM_CLIENT_ID: str = os.getenv("ZOOM_CLIENT_ID", "")
+ZOOM_CLIENT_SECRET: str = os.getenv("ZOOM_CLIENT_SECRET", "")
+
 GMAIL_POLL_INTERVAL_MINUTES = 15
 MAX_TELEGRAM_MESSAGE_LENGTH = 4096
 AUDIO_CHUNK_MINUTES = 10

@@ -313,6 +313,8 @@ async def _handle_reminder_cancel(update, context, entities, lang, original_text
 
 
 async def _handle_calendar_create(update, context, entities, lang):
+    from bot.services import zoom_service
+
     name = entities.get("calendar_event_name") or entities.get("description", "Meeting")
     time_iso = entities.get("time_iso")
     duration = entities.get("duration_minutes") or 60
@@ -321,12 +323,22 @@ async def _handle_calendar_create(update, context, entities, lang):
         await update.effective_message.reply_text("Please specify the date and time for the event.")
         return
 
-    event = await calendar_service.create_event(name, time_iso, int(duration))
+    zoom = await zoom_service.create_meeting(name, time_iso, int(duration))
+    description = ""
+    if zoom:
+        description = f"Zoom Meeting\nJoin: {zoom['join_url']}"
+        if zoom.get("password"):
+            description += f"\nPassword: {zoom['password']}"
+
+    event = await calendar_service.create_event(name, time_iso, int(duration), description=description)
     display_time = _to_kl(time_iso)
+
+    zoom_line = f"\nZoom: {zoom['join_url']}" if zoom else ""
     reply = strip_markdown(claude_service.chat(
         system=f"You are a natural, human-sounding PA. Confirm this calendar event in one short casual sentence. Respond in language: {lang}.",
-        user=f"Event '{name}' created at {display_time} for {duration} minutes.",
-    ))
+        user=f"Event '{name}' created at {display_time} for {duration} minutes.{' A Zoom link has been added.' if zoom else ''}",
+    )) + zoom_line
+
     keyboard = InlineKeyboardMarkup([[
         InlineKeyboardButton("Cancel event", callback_data=f"cancel_event:{event['id']}")
     ]])
