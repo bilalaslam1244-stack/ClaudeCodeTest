@@ -7,7 +7,10 @@ TELEGRAM_BOT_TOKEN: str = os.environ["TELEGRAM_BOT_TOKEN"]
 TELEGRAM_LOCAL_API_URL: str = os.getenv("TELEGRAM_LOCAL_API_URL", "")
 ANTHROPIC_API_KEY: str = os.environ["ANTHROPIC_API_KEY"]
 OPENAI_API_KEY: str = os.environ["OPENAI_API_KEY"]
-ALLOWED_USER_ID: int = int(os.environ["ALLOWED_USER_ID"])
+ALLOWED_USER_ID: int = int(os.environ["ALLOWED_USER_ID"].split(",")[0].strip())
+ALLOWED_USER_IDS: frozenset[int] = frozenset(
+    int(x.strip()) for x in os.environ["ALLOWED_USER_ID"].split(",") if x.strip()
+)
 BOSS_TIMEZONE: str = os.getenv("BOSS_TIMEZONE", "Asia/Kuala_Lumpur")
 CLAUDE_HAIKU_MODEL: str = os.getenv("CLAUDE_HAIKU_MODEL", "claude-haiku-4-5-20251001")
 CLAUDE_SONNET_MODEL: str = os.getenv("CLAUDE_SONNET_MODEL", "claude-sonnet-4-6")

@@ -6,7 +6,7 @@ from datetime import datetime
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 
-from bot.config import ALLOWED_USER_ID, BOSS_TIMEZONE
+from bot.config import ALLOWED_USER_IDS, BOSS_TIMEZONE
 from bot.handlers import voice_handler
 from bot.services import (
     intent_router,
@@ -50,7 +50,7 @@ async def handle_message(
     message = update.effective_message
     user_id = update.effective_user.id if update.effective_user else None
 
-    if user_id != ALLOWED_USER_ID:
+    if user_id not in ALLOWED_USER_IDS:
         return
 
     text = ""

@@ -9,7 +9,7 @@ from telegram.ext import (
     filters,
 )
 
-from bot.config import TELEGRAM_BOT_TOKEN, ALLOWED_USER_ID, OUTPUT_DIR, TELEGRAM_LOCAL_API_URL
+from bot.config import TELEGRAM_BOT_TOKEN, ALLOWED_USER_ID, ALLOWED_USER_IDS, OUTPUT_DIR, TELEGRAM_LOCAL_API_URL
 from bot.db.database import init_db
 from bot.handlers.message_handler import handle_message
 from bot.handlers.document_handler import handle_document
@@ -117,13 +117,13 @@ def main() -> None:
     # Handlers — documents + audio files first, then voice notes + text
     application.add_handler(
         MessageHandler(
-            (filters.Document.ALL | filters.AUDIO) & filters.User(ALLOWED_USER_ID),
+            (filters.Document.ALL | filters.AUDIO) & filters.User(ALLOWED_USER_IDS),
             handle_document,
         )
     )
     application.add_handler(
         MessageHandler(
-            (filters.TEXT | filters.VOICE | filters.PHOTO) & filters.User(ALLOWED_USER_ID),
+            (filters.TEXT | filters.VOICE | filters.PHOTO) & filters.User(ALLOWED_USER_IDS),
             handle_message,
         )
     )
