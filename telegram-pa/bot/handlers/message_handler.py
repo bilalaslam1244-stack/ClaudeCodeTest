@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import re
 from zoneinfo import ZoneInfo
@@ -649,48 +650,70 @@ async def _handle_general_chat(update, context, lang, text):
 
 async def _handle_photo(update, context):
     from bot.services import contact_service
+    import base64
 
     message = update.effective_message
+    caption = (message.caption or "").strip()
     await message.reply_text("Reading image...")
 
-    # Get highest-res photo variant
     photo = message.photo[-1]
     try:
         tg_file = await context.bot.get_file(photo.file_id)
-        image_bytes = await tg_file.download_as_bytearray()
+        image_bytes = bytes(await tg_file.download_as_bytearray())
     except Exception as exc:
         logger.error("Photo download failed: %s", exc)
         await message.reply_text("Couldn't download the image. Please try again.")
         return
 
-    contact = await contact_service.extract_contact(bytes(image_bytes), media_type="image/jpeg")
+    image_b64 = base64.b64encode(image_bytes).decode()
 
-    if not contact:
-        await message.reply_text(
-            "Doesn't look like a business card. Send a text message if you want me to do something with this image."
-        )
+    # Try business card first
+    contact = await contact_service.extract_contact(image_bytes, media_type="image/jpeg")
+    if contact:
+        summary = contact_service.format_contact_summary(contact)
+        vcf_path = contact_service.save_vcf(contact)
+        await message.reply_text(f"Business card scanned:\n\n{summary}\n\nSending contact file...")
+        try:
+            with open(vcf_path, "rb") as f:
+                name = contact.get("full_name") or "contact"
+                safe = name.replace(" ", "_")
+                await context.bot.send_document(
+                    chat_id=update.effective_chat.id,
+                    document=f,
+                    filename=f"{safe}.vcf",
+                    caption="Tap to add to contacts.",
+                )
+            await memory_service.add_message("assistant", f"[Business card scanned: {summary}]")
+        except Exception as exc:
+            logger.error("VCF send failed: %s", exc)
+            await message.reply_text(f"Couldn't send contact file: {exc}")
+        finally:
+            cleanup(vcf_path)
         return
 
-    summary = contact_service.format_contact_summary(contact)
-    vcf_path = contact_service.save_vcf(contact)
-
-    await message.reply_text(f"Business card scanned:\n\n{summary}\n\nSending contact file...")
-
+    # Not a business card — summarize the image
+    user_prompt = caption if caption else "Summarize or describe the key content of this image."
+    system = (
+        "You are a concise document summarizer for a busy executive. "
+        "Analyze the image and extract key information clearly and briefly. "
+        "If it's a resume: name, role, top skills, experience highlights in 3-5 bullet points. "
+        "If it's a document or screenshot of text: main topic and key points. "
+        "If it's a table or data: what it shows and notable figures. "
+        "Be direct. No filler. Max 150 words unless content warrants more."
+    )
     try:
-        with open(vcf_path, "rb") as f:
-            name = contact.get("full_name") or "contact"
-            safe = name.replace(" ", "_")
-            await context.bot.send_document(
-                chat_id=update.effective_chat.id,
-                document=f,
-                filename=f"{safe}.vcf",
-                caption="Tap to add to contacts.",
-            )
-        await memory_service.add_message(
-            "assistant", f"[Business card scanned: {summary}]"
+        reply = await asyncio.to_thread(
+            claude_service.chat_with_vision,
+            system,
+            user_prompt,
+            [image_b64],
+            None,
+            1024,
+            "image/jpeg",
         )
+        await send_long_message(context.bot, update.effective_chat.id, reply)
+        await memory_service.add_message("user", f"[Image sent{': ' + caption if caption else ''}]")
+        await memory_service.add_message("assistant", reply)
     except Exception as exc:
-        logger.error("VCF send failed: %s", exc)
-        await message.reply_text(f"Couldn't send contact file: {exc}")
-    finally:
-        cleanup(vcf_path)
+        logger.error("Image summarization failed: %s", exc)
+        await message.reply_text("Couldn't read the image. Please try again.")

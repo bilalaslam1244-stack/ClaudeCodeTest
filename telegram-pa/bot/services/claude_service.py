@@ -41,10 +41,10 @@ def chat_with_vision(
     images_b64: list[str],
     model: str | None = None,
     max_tokens: int = 4096,
+    media_type: str = "image/png",
 ) -> str:
-    """Send text + images (base64 PNG) to Claude vision."""
     content = [
-        {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": img}}
+        {"type": "image", "source": {"type": "base64", "media_type": media_type, "data": img}}
         for img in images_b64
     ]
     content.append({"type": "text", "text": user_text})
