@@ -123,7 +123,7 @@ def main() -> None:
     )
     application.add_handler(
         MessageHandler(
-            (filters.TEXT | filters.VOICE) & filters.User(ALLOWED_USER_ID),
+            (filters.TEXT | filters.VOICE | filters.PHOTO) & filters.User(ALLOWED_USER_ID),
             handle_message,
         )
     )
