@@ -70,7 +70,8 @@ Return this exact JSON schema:
     "person": "<person name, or null>",
     "email_to": "<recipient email address or name, or null>",
     "email_subject": "<email subject line, or null>",
-    "email_body": "<email body text, or null>"
+    "email_body": "<email body text, or null>",
+    "zoom_requested": <true if user explicitly mentions zoom/video call/zoom link, false otherwise>
   }}
 }}
 

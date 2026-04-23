@@ -328,7 +328,9 @@ async def _handle_calendar_create(update, context, entities, lang):
         await update.effective_message.reply_text("Please specify the date and time for the event.")
         return
 
-    zoom = await zoom_service.create_meeting(name, time_iso, int(duration))
+    zoom = None
+    if entities.get("zoom_requested"):
+        zoom = await zoom_service.create_meeting(name, time_iso, int(duration))
     description = ""
     if zoom:
         description = f"Zoom Meeting\nJoin: {zoom['join_url']}"
