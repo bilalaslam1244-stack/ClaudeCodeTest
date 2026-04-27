@@ -160,6 +160,26 @@ async def handle_message(
         )
         return
 
+    # Pending bulk calendar — user is replying with a date
+    if context.user_data.get("pending_bulk_events"):
+        pending = context.user_data.pop("pending_bulk_events")
+        await memory_service.add_message("user", text)
+        fake_entities = {"events": pending, "date_specified": True}
+        # Re-classify with date context so intent_router resolves time_iso
+        from zoneinfo import ZoneInfo as _ZI
+        from datetime import datetime as _dt
+        _tz = _ZI(BOSS_TIMEZONE)
+        _now_str = _dt.now(_tz).strftime("%Y-%m-%dT%H:%M:%S %Z")
+        date_prompt = (
+            f"The user provided a list of events earlier and now replied with a date: '{text}'. "
+            f"Return calendar_create_bulk JSON with date_specified=true and all time_iso values resolved to that date. "
+            f"Current local time: {_now_str} ({BOSS_TIMEZONE}). "
+            f"Events: {pending}"
+        )
+        result2 = intent_router.classify(date_prompt, detect_language(text))
+        await _handle_calendar_create_bulk(update, context, result2.entities, detect_language(text))
+        return
+
     lang = detect_language(text)
     tagged = f"[TRANSCRIPT] {text}" if is_voice else text
 
@@ -366,6 +386,7 @@ async def _handle_calendar_create_bulk(update, context, entities, lang):
         return
 
     if not entities.get("date_specified"):
+        context.user_data["pending_bulk_events"] = events
         reply = "Which date should I add these events to? (e.g. 1 May)"
         await update.effective_message.reply_text(reply)
         await memory_service.add_message("assistant", reply)
