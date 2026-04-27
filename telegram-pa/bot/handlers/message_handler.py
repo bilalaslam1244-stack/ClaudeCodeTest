@@ -378,12 +378,15 @@ async def _handle_calendar_create_bulk(update, context, entities, lang):
         time_iso = ev.get("time_iso")
         duration = int(ev.get("duration_minutes") or 60)
         if not time_iso:
+            logger.warning("Bulk create: no time_iso for event '%s'", name)
             failed.append(name)
             continue
         try:
-            await calendar_service.create_event(name, time_iso, duration)
+            result = await calendar_service.create_event(name, time_iso, duration)
+            logger.info("Bulk create: created event '%s' id=%s", name, result.get("id"))
             created.append(f"• {_to_kl(time_iso)} — {name}")
-        except Exception:
+        except Exception as exc:
+            logger.error("Bulk create: failed '%s': %s", name, exc)
             failed.append(name)
 
     lines = ["Done! Added to your calendar:"] + created
