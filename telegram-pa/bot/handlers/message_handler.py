@@ -160,6 +160,29 @@ async def handle_message(
         )
         return
 
+    # Cancel referencing recently bulk-created events ("cancel these", "cancel all", "remove them")
+    _cancel_words = {"cancel", "remove", "delete", "clear"}
+    _ref_words = {"these", "all", "them", "those", "everything", "the meetings", "the events"}
+    _tl = text.lower()
+    if (
+        context.user_data.get("last_bulk_event_ids")
+        and any(w in _tl for w in _cancel_words)
+        and any(w in _tl for w in _ref_words)
+    ):
+        ids = context.user_data.pop("last_bulk_event_ids")
+        await memory_service.add_message("user", text)
+        cancelled_count = 0
+        for eid in ids:
+            try:
+                await calendar_service.cancel_event(eid)
+                cancelled_count += 1
+            except Exception as exc:
+                logger.error("Bulk cancel: failed id=%s: %s", eid, exc)
+        reply = f"Done. Cancelled {cancelled_count} event(s) from your calendar."
+        await update.effective_message.reply_text(reply)
+        await memory_service.add_message("assistant", reply)
+        return
+
     # Pending bulk calendar — user is replying with a date
     if context.user_data.get("pending_bulk_events"):
         pending = context.user_data.pop("pending_bulk_events")
@@ -404,8 +427,10 @@ async def _handle_calendar_create_bulk(update, context, entities, lang):
             continue
         try:
             result = await calendar_service.create_event(name, time_iso, duration)
-            logger.info("Bulk create: created event '%s' id=%s", name, result.get("id"))
+            event_id = result.get("id")
+            logger.info("Bulk create: created event '%s' id=%s", name, event_id)
             created.append(f"• {_to_kl(time_iso)} — {name}")
+            context.user_data.setdefault("last_bulk_event_ids", []).append(event_id)
         except Exception as exc:
             logger.error("Bulk create: failed '%s': %s", name, exc)
             failed.append(name)
