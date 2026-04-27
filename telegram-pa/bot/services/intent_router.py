@@ -88,7 +88,8 @@ Return this exact JSON schema:
     "origin_city": "<for flight_search: origin city or airport name as user said it, e.g. 'Kuala Lumpur', 'KL', 'Dubai'>",
     "destination_iata": "<for flight_search: 3-letter IATA code if known, else null>",
     "destination_city": "<for flight_search: destination city or airport name as user said it>",
-    "return_date": "<for flight_search: ISO date YYYY-MM-DD if round trip, else null>",
+    "flight_date": "<for flight_search: departure date as YYYY-MM-DD (e.g. '2026-05-15' for '15 May'), null if not specified>",
+    "return_date": "<for flight_search: return date as YYYY-MM-DD if round trip, else null>",
     "adults": <for flight_search: number of passengers, default 1>
   }}
 }}

@@ -757,7 +757,10 @@ async def _handle_flight_search(update, context, entities, lang):
 
     origin = (entities.get("origin_iata") or entities.get("origin_city") or "").strip()
     destination = (entities.get("destination_iata") or entities.get("destination_city") or "").strip()
-    departure_date = entities.get("time_iso", "")[:10] if entities.get("time_iso") else ""
+    departure_date = (
+        entities.get("flight_date")
+        or (entities.get("time_iso", "")[:10] if entities.get("time_iso") else "")
+    )
     return_date = (entities.get("return_date") or "")[:10]
     adults = int(entities.get("adults") or 1)
     logger.info("Flight search entities: origin=%r dest=%r date=%r", origin, destination, departure_date)
