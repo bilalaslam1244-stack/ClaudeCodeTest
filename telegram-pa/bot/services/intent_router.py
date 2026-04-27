@@ -16,6 +16,7 @@ VALID_INTENTS = {
     "calendar_create_bulk",
     "calendar_reschedule",
     "calendar_cancel",
+    "calendar_cancel_bulk",
     "calendar_list",
     "note_save",
     "note_retrieve",
@@ -38,7 +39,7 @@ Respond ONLY with valid JSON. No prose, no markdown, no explanation.
 
 Classify the user message into exactly one intent from this list:
 reminder_set | reminder_list | reminder_cancel |
-calendar_create | calendar_create_bulk | calendar_reschedule | calendar_cancel | calendar_list |
+calendar_create | calendar_create_bulk | calendar_reschedule | calendar_cancel | calendar_cancel_bulk | calendar_list |
 note_save | note_retrieve |
 email_check | email_summarize | email_send | email_overview |
 daily_overview |
@@ -50,6 +51,8 @@ Intent definitions (use these to disambiguate):
 - calendar_list: user wants ONLY calendar events, no emails
 - calendar_create: user wants to create ONE calendar event
 - calendar_create_bulk: user provides MULTIPLE events/appointments at once (a list or schedule with several time slots)
+- calendar_cancel: user wants to cancel ONE specific event by name
+- calendar_cancel_bulk: user wants to cancel MULTIPLE events at once ("cancel all my events today", "remove all four events")
 - email_check: user wants to READ or FETCH emails, with or without a count ("give me last 3 emails", "show me my emails", "any new emails", "check emails")
 - email_summarize: user explicitly wants a SUMMARY or digest of emails ("summarize my emails", "what are the important emails")
 - email_overview: user wants a QUICK LIST of subjects/senders only, no AI summary ("what's in my inbox", "inbox overview")
@@ -75,7 +78,9 @@ Return this exact JSON schema:
     "email_subject": "<email subject line, or null>",
     "email_body": "<email body text, or null>",
     "zoom_requested": <true if user explicitly mentions zoom/video call/zoom link, false otherwise>,
-    "events": <for calendar_create_bulk only: array of {{"name": "<title>", "time_iso": "<UTC ISO8601>", "duration_minutes": <int>}}, else null>
+    "events": <for calendar_create_bulk only: array of {{"name": "<title>", "time_iso": "<UTC ISO8601 or null if date unknown>", "duration_minutes": <int>}}, else null>,
+    "date_specified": <for calendar_create_bulk only: true if user explicitly stated a date, false if no date was given>,
+    "cancel_event_names": <for calendar_cancel_bulk only: array of event name strings to cancel, else null>
   }}
 }}
 

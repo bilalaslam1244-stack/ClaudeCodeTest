@@ -34,5 +34,8 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             logger.error("Failed to cancel event %s: %s", event_id, exc)
             await query.edit_message_text("Could not cancel the event. Please try again.")
 
+    elif data == "noop":
+        await query.edit_message_text("No changes made.")
+
     else:
         await query.edit_message_text("Unknown action.")

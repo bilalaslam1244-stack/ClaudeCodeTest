@@ -208,6 +208,9 @@ async def handle_message(
     elif intent == "calendar_cancel":
         await _handle_calendar_cancel(update, context, entities, lang, text)
 
+    elif intent == "calendar_cancel_bulk":
+        await _handle_calendar_cancel_bulk(update, context, entities, lang)
+
     elif intent == "calendar_list":
         await _handle_calendar_list(update, context, entities, lang)
 
@@ -362,6 +365,12 @@ async def _handle_calendar_create_bulk(update, context, entities, lang):
         await update.effective_message.reply_text("Could not parse any events. Please list each event with a time and title.")
         return
 
+    if not entities.get("date_specified"):
+        reply = "Which date should I add these events to? (e.g. 1 May)"
+        await update.effective_message.reply_text(reply)
+        await memory_service.add_message("assistant", reply)
+        return
+
     created = []
     failed = []
     for ev in events:
@@ -418,6 +427,36 @@ async def _handle_calendar_cancel(update, context, entities, lang, original_text
     await update.effective_message.reply_text(
         f"Cancel '{event.get('summary')}'?", reply_markup=keyboard
     )
+
+
+async def _handle_calendar_cancel_bulk(update, context, entities, lang):
+    names = entities.get("cancel_event_names") or []
+    if not names:
+        await update.effective_message.reply_text("Could not determine which events to cancel. Please name them.")
+        return
+
+    cancelled = []
+    not_found = []
+    for name in names:
+        event = await calendar_service.find_event_by_name(name)
+        if not event:
+            not_found.append(name)
+            continue
+        try:
+            await calendar_service.cancel_event(event["id"])
+            cancelled.append(f"• {event.get('summary', name)}")
+        except Exception:
+            not_found.append(name)
+
+    lines = []
+    if cancelled:
+        lines.append("Cancelled from your calendar:")
+        lines.extend(cancelled)
+    if not_found:
+        lines.append(f"\nCould not find: {', '.join(not_found)}")
+    reply = "\n".join(lines) if lines else "No events were cancelled."
+    await update.effective_message.reply_text(reply)
+    await memory_service.add_message("assistant", reply)
 
 
 async def _handle_calendar_list(update, context, entities, lang):
