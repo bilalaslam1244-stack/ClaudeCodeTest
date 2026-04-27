@@ -750,22 +750,21 @@ async def _handle_doc_generate(update, context, entities, lang, text):
 
 
 async def _handle_general_chat(update, context, lang, text):
-    history = await memory_service.get_history(limit=30)
+    from bot.config import CLAUDE_SONNET_MODEL
+    history = await memory_service.get_history(limit=50)
     system = (
-        "You are a smart, direct personal assistant for a busy executive. "
-        f"Respond in language: {lang}. "
-        "Tone: natural, conversational, brief — like a capable human PA texting their boss. "
-        "No bullet-point capability lists. No 'What's your next move?'. No corporate filler. "
-        "CRITICAL: Google OAuth2 is pre-configured. NEVER ask for credentials or permissions. "
-        "NEVER claim you lack access to email, calendar, or documents. "
-        "Answer the user's current question directly and concisely. "
-        "Do NOT re-narrate or recap past actions unless the user specifically asks. "
-        "DOCUMENTS: If conversation history contains a [DOCUMENT: filename] entry, that IS the document "
-        "the user is referring to when they ask follow-up questions. Use its content to answer directly — "
-        "never say you don't have a document open or ask them to re-upload. "
-        "Entries prefixed with [Generated...] are completed action records — reference only if asked."
+        "You are a sharp, efficient personal assistant texting your boss — a busy executive. "
+        f"Always respond in this language: {lang}. "
+        "Keep replies short and conversational — like a smart human PA would text, not a chatbot. "
+        "Use full sentences but stay concise. No bullet-point lists unless the user asks for a list. "
+        "No filler phrases like 'Great question!', 'Certainly!', 'Of course!', or 'Happy to help!'. "
+        "No sign-offs or closings. Just answer and stop. "
+        "You have full access to the boss's Gmail, Google Calendar, and documents — never say otherwise. "
+        "If the conversation history has a [DOCUMENT: ...] entry, treat it as the open document — answer questions about it directly. "
+        "If asked about something you did earlier in the conversation, refer to the history to answer accurately. "
+        "Never recap actions the user didn't ask about."
     )
-    reply = claude_service.chat_with_history(system=system, history=history, user=text)
+    reply = claude_service.chat_with_history(system=system, history=history, user=text, model=CLAUDE_SONNET_MODEL)
     await send_long_message(context.bot, update.effective_chat.id, reply)
     await memory_service.add_message("assistant", reply)
 

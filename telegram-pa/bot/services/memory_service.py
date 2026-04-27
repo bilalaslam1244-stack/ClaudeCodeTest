@@ -8,7 +8,7 @@ import aiosqlite
 
 from bot.config import DB_PATH, ALLOWED_USER_ID
 
-WINDOW_SIZE = 20  # last 20 messages (10 exchanges)
+WINDOW_SIZE = 40  # last 40 messages (20 exchanges)
 
 
 async def add_message(role: str, content: str) -> None:
@@ -27,7 +27,7 @@ async def add_message(role: str, content: str) -> None:
                 WHERE user_id = ?
                 ORDER BY id DESC LIMIT ?
             )""",
-            (ALLOWED_USER_ID, WINDOW_SIZE * 3),
+            (ALLOWED_USER_ID, WINDOW_SIZE * 4),
         )
         await db.commit()
 
