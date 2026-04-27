@@ -84,8 +84,10 @@ Return this exact JSON schema:
     "events": <for calendar_create_bulk only: array of {{"name": "<title>", "time_iso": "<UTC ISO8601 or null if date unknown>", "duration_minutes": <int>}}, else null>,
     "date_specified": <for calendar_create_bulk only: true if user explicitly stated a date, false if no date was given>,
     "cancel_event_names": <for calendar_cancel_bulk only: array of event name strings to cancel, else null>,
-    "origin_iata": "<for flight_search: 3-letter IATA airport code of origin, e.g. KUL, or null>",
-    "destination_iata": "<for flight_search: 3-letter IATA airport code of destination, e.g. DXB, or null>",
+    "origin_iata": "<for flight_search: 3-letter IATA code if known (KUL=Kuala Lumpur/KL, DXB=Dubai, SIN=Singapore, MAA=Chennai, BKK=Bangkok, LHR=London, CDG=Paris, JFK=New York, SYD=Sydney, HKG=Hong Kong), else null>",
+    "origin_city": "<for flight_search: origin city or airport name as user said it, e.g. 'Kuala Lumpur', 'KL', 'Dubai'>",
+    "destination_iata": "<for flight_search: 3-letter IATA code if known, else null>",
+    "destination_city": "<for flight_search: destination city or airport name as user said it>",
     "return_date": "<for flight_search: ISO date YYYY-MM-DD if round trip, else null>",
     "adults": <for flight_search: number of passengers, default 1>
   }}
