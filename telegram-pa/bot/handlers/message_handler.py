@@ -199,6 +199,9 @@ async def handle_message(
     elif intent == "calendar_create":
         await _handle_calendar_create(update, context, entities, lang)
 
+    elif intent == "calendar_create_bulk":
+        await _handle_calendar_create_bulk(update, context, entities, lang)
+
     elif intent == "calendar_reschedule":
         await _handle_calendar_reschedule(update, context, entities, lang, text)
 
@@ -350,6 +353,35 @@ async def _handle_calendar_create(update, context, entities, lang):
         InlineKeyboardButton("Cancel event", callback_data=f"cancel_event:{event['id']}")
     ]])
     await update.effective_message.reply_text(reply, reply_markup=keyboard)
+    await memory_service.add_message("assistant", reply)
+
+
+async def _handle_calendar_create_bulk(update, context, entities, lang):
+    events = entities.get("events") or []
+    if not events:
+        await update.effective_message.reply_text("Could not parse any events. Please list each event with a time and title.")
+        return
+
+    created = []
+    failed = []
+    for ev in events:
+        name = ev.get("name") or "Meeting"
+        time_iso = ev.get("time_iso")
+        duration = int(ev.get("duration_minutes") or 60)
+        if not time_iso:
+            failed.append(name)
+            continue
+        try:
+            await calendar_service.create_event(name, time_iso, duration)
+            created.append(f"• {_to_kl(time_iso)} — {name}")
+        except Exception:
+            failed.append(name)
+
+    lines = ["Done! Added to your calendar:"] + created
+    if failed:
+        lines.append(f"\nCould not add: {', '.join(failed)}")
+    reply = "\n".join(lines)
+    await update.effective_message.reply_text(reply)
     await memory_service.add_message("assistant", reply)
 
 

@@ -13,6 +13,7 @@ VALID_INTENTS = {
     "reminder_list",
     "reminder_cancel",
     "calendar_create",
+    "calendar_create_bulk",
     "calendar_reschedule",
     "calendar_cancel",
     "calendar_list",
@@ -37,7 +38,7 @@ Respond ONLY with valid JSON. No prose, no markdown, no explanation.
 
 Classify the user message into exactly one intent from this list:
 reminder_set | reminder_list | reminder_cancel |
-calendar_create | calendar_reschedule | calendar_cancel | calendar_list |
+calendar_create | calendar_create_bulk | calendar_reschedule | calendar_cancel | calendar_list |
 note_save | note_retrieve |
 email_check | email_summarize | email_send | email_overview |
 daily_overview |
@@ -47,6 +48,8 @@ general_chat
 Intent definitions (use these to disambiguate):
 - daily_overview: user wants a combined view of today — schedule AND emails together ("what's on today", "give me an overview of today", "my schedule and emails", "what do I have today", "morning overview", "today's agenda")
 - calendar_list: user wants ONLY calendar events, no emails
+- calendar_create: user wants to create ONE calendar event
+- calendar_create_bulk: user provides MULTIPLE events/appointments at once (a list or schedule with several time slots)
 - email_check: user wants to READ or FETCH emails, with or without a count ("give me last 3 emails", "show me my emails", "any new emails", "check emails")
 - email_summarize: user explicitly wants a SUMMARY or digest of emails ("summarize my emails", "what are the important emails")
 - email_overview: user wants a QUICK LIST of subjects/senders only, no AI summary ("what's in my inbox", "inbox overview")
@@ -71,7 +74,8 @@ Return this exact JSON schema:
     "email_to": "<recipient email address or name, or null>",
     "email_subject": "<email subject line, or null>",
     "email_body": "<email body text, or null>",
-    "zoom_requested": <true if user explicitly mentions zoom/video call/zoom link, false otherwise>
+    "zoom_requested": <true if user explicitly mentions zoom/video call/zoom link, false otherwise>,
+    "events": <for calendar_create_bulk only: array of {{"name": "<title>", "time_iso": "<UTC ISO8601>", "duration_minutes": <int>}}, else null>
   }}
 }}
 
