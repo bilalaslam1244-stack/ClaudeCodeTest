@@ -203,6 +203,28 @@ async def handle_message(
         await _handle_calendar_create_bulk(update, context, result2.entities, detect_language(text))
         return
 
+    # Pending flight search — user replying with one-way/return
+    if context.user_data.get("pending_flight"):
+        pf = context.user_data.pop("pending_flight")
+        await memory_service.add_message("user", text)
+        _tl2 = text.lower()
+        return_date = ""
+        if any(w in _tl2 for w in ("one way", "one-way", "oneway", "no return", "single")):
+            pass  # one-way, no return date
+        else:
+            # try extract date from reply via intent router
+            _pf_result = intent_router.classify(
+                f"The return date for a flight is: {text}. Extract flight_date as YYYY-MM-DD.",
+                detect_language(text),
+            )
+            return_date = (_pf_result.entities.get("flight_date") or "")[:10]
+        await _send_flight_results(
+            update, context,
+            pf["origin"], pf["destination"], pf["departure_date"],
+            return_date, pf["adults"], detect_language(text),
+        )
+        return
+
     lang = detect_language(text)
     tagged = f"[TRANSCRIPT] {text}" if is_voice else text
 
@@ -762,19 +784,37 @@ async def _handle_flight_search(update, context, entities, lang):
         or (entities.get("time_iso", "")[:10] if entities.get("time_iso") else "")
     )
     return_date = (entities.get("return_date") or "")[:10]
+    trip_type = entities.get("trip_type") or "unknown"
     adults = int(entities.get("adults") or 1)
-    logger.info("Flight search entities: origin=%r dest=%r date=%r", origin, destination, departure_date)
+    logger.info("Flight search entities: origin=%r dest=%r date=%r trip=%r", origin, destination, departure_date, trip_type)
 
     if not origin or not destination or not departure_date:
-        reply = "Please specify origin, destination and date. E.g. 'Find flights from KL to Dubai on 15 May'"
+        reply = "Please specify origin, destination and date. E.g. 'Flights from KL to Dubai on 15 May'"
         await update.effective_message.reply_text(reply)
         await memory_service.add_message("assistant", reply)
         return
 
-    msg = flight_service.build_message(origin, destination, departure_date, return_date, adults)
+    if trip_type == "unknown":
+        context.user_data["pending_flight"] = {
+            "origin": origin, "destination": destination,
+            "departure_date": departure_date, "adults": adults,
+        }
+        reply = "One-way or return? If return, what's the return date?"
+        await update.effective_message.reply_text(reply)
+        await memory_service.add_message("assistant", reply)
+        return
+
+    await _send_flight_results(update, context, origin, destination, departure_date, return_date, adults, lang)
+
+
+async def _send_flight_results(update, context, origin, destination, departure_date, return_date, adults, lang):
+    from bot.services import flight_service
+
+    await update.effective_message.reply_text(f"Searching flights {origin} → {destination}...")
+    prices = await flight_service.search_prices(origin, destination, departure_date, return_date, adults)
+    msg = flight_service.build_message(origin, destination, departure_date, return_date, adults, prices)
     gf_url = flight_service.google_flights_url(origin, destination, departure_date, return_date, adults)
     ss_url = flight_service.skyscanner_url(origin, destination, departure_date, return_date, adults)
-
     keyboard = InlineKeyboardMarkup([[
         InlineKeyboardButton("Google Flights", url=gf_url),
         InlineKeyboardButton("Skyscanner", url=ss_url),

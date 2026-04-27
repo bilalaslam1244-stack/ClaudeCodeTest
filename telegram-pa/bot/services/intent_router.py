@@ -90,6 +90,7 @@ Return this exact JSON schema:
     "destination_city": "<for flight_search: destination city or airport name as user said it>",
     "flight_date": "<for flight_search: departure date as YYYY-MM-DD (e.g. '2026-05-15' for '15 May'), null if not specified>",
     "return_date": "<for flight_search: return date as YYYY-MM-DD if round trip, else null>",
+    "trip_type": "<for flight_search: 'one_way' if user said one-way/one way, 'return' if user mentioned return/round trip/coming back, 'unknown' if not specified>",
     "adults": <for flight_search: number of passengers, default 1>
   }}
 }}
