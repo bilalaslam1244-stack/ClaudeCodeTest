@@ -289,6 +289,9 @@ async def handle_message(
             "Please send the meeting audio file as a file attachment (paperclip → File)."
         )
 
+    elif intent == "flight_search":
+        await _handle_flight_search(update, context, entities, lang)
+
     else:
         await _handle_general_chat(update, context, lang, text)
 
@@ -747,6 +750,52 @@ async def _handle_doc_generate(update, context, entities, lang, text):
         await memory_service.add_message("assistant", f"[Generated {fmt.upper()} titled '{title}']")
     finally:
         cleanup(doc_path)
+
+
+async def _handle_flight_search(update, context, entities, lang):
+    from bot.services import flight_service
+    from bot.config import AMADEUS_API_KEY
+
+    if not AMADEUS_API_KEY:
+        await update.effective_message.reply_text(
+            "Flight search not configured. Add AMADEUS_API_KEY and AMADEUS_API_SECRET to .env and restart."
+        )
+        return
+
+    origin = (entities.get("origin_iata") or "").upper()
+    destination = (entities.get("destination_iata") or "").upper()
+    departure_date = entities.get("time_iso", "")[:10] if entities.get("time_iso") else ""
+    return_date = (entities.get("return_date") or "")[:10]
+    adults = int(entities.get("adults") or 1)
+
+    if not origin or not destination or not departure_date:
+        reply = "Please specify origin, destination and date. E.g. 'Find flights from KL to Dubai on 15 May'"
+        await update.effective_message.reply_text(reply)
+        await memory_service.add_message("assistant", reply)
+        return
+
+    await update.effective_message.reply_text(f"Searching flights {origin} → {destination}...")
+
+    try:
+        offers = await flight_service.search_flights(
+            origin=origin,
+            destination=destination,
+            departure_date=departure_date,
+            return_date=return_date,
+            adults=adults,
+        )
+        text = flight_service.format_results(offers, origin, destination, departure_date, return_date)
+        gf_url = flight_service.google_flights_url(origin, destination, departure_date, return_date)
+        keyboard = InlineKeyboardMarkup([[
+            InlineKeyboardButton("View on Google Flights", url=gf_url)
+        ]])
+        await update.effective_message.reply_text(text, reply_markup=keyboard)
+        await memory_service.add_message("assistant", text)
+    except Exception as exc:
+        logger.error("Flight search failed: %s", exc)
+        reply = f"Could not fetch flights. Check Amadeus API keys or try again. ({exc})"
+        await update.effective_message.reply_text(reply)
+        await memory_service.add_message("assistant", reply)
 
 
 async def _handle_general_chat(update, context, lang, text):

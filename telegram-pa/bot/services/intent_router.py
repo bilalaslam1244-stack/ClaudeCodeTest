@@ -30,6 +30,7 @@ VALID_INTENTS = {
     "doc_generate",
     "meeting_minutes",
     "url_summarize",
+    "flight_search",
     "general_chat",
 }
 
@@ -44,6 +45,7 @@ note_save | note_retrieve |
 email_check | email_summarize | email_send | email_overview |
 daily_overview |
 doc_generate | meeting_minutes |
+flight_search |
 general_chat
 
 Intent definitions (use these to disambiguate):
@@ -53,6 +55,7 @@ Intent definitions (use these to disambiguate):
 - calendar_create_bulk: user provides MULTIPLE events/appointments at once (a list or schedule with several time slots)
 - calendar_cancel: user wants to cancel ONE specific event by name
 - calendar_cancel_bulk: user wants to cancel MULTIPLE events at once ("cancel all my events today", "remove all four events")
+- flight_search: user wants to find/search flights ("find flights", "cheapest flight to", "flight from X to Y")
 - email_check: user wants to READ or FETCH emails, with or without a count ("give me last 3 emails", "show me my emails", "any new emails", "check emails")
 - email_summarize: user explicitly wants a SUMMARY or digest of emails ("summarize my emails", "what are the important emails")
 - email_overview: user wants a QUICK LIST of subjects/senders only, no AI summary ("what's in my inbox", "inbox overview")
@@ -80,7 +83,11 @@ Return this exact JSON schema:
     "zoom_requested": <true if user explicitly mentions zoom/video call/zoom link, false otherwise>,
     "events": <for calendar_create_bulk only: array of {{"name": "<title>", "time_iso": "<UTC ISO8601 or null if date unknown>", "duration_minutes": <int>}}, else null>,
     "date_specified": <for calendar_create_bulk only: true if user explicitly stated a date, false if no date was given>,
-    "cancel_event_names": <for calendar_cancel_bulk only: array of event name strings to cancel, else null>
+    "cancel_event_names": <for calendar_cancel_bulk only: array of event name strings to cancel, else null>,
+    "origin_iata": "<for flight_search: 3-letter IATA airport code of origin, e.g. KUL, or null>",
+    "destination_iata": "<for flight_search: 3-letter IATA airport code of destination, e.g. DXB, or null>",
+    "return_date": "<for flight_search: ISO date YYYY-MM-DD if round trip, else null>",
+    "adults": <for flight_search: number of passengers, default 1>
   }}
 }}
 
