@@ -754,13 +754,6 @@ async def _handle_doc_generate(update, context, entities, lang, text):
 
 async def _handle_flight_search(update, context, entities, lang):
     from bot.services import flight_service
-    from bot.config import AMADEUS_API_KEY
-
-    if not AMADEUS_API_KEY:
-        await update.effective_message.reply_text(
-            "Flight search not configured. Add AMADEUS_API_KEY and AMADEUS_API_SECRET to .env and restart."
-        )
-        return
 
     origin = (entities.get("origin_iata") or "").upper()
     destination = (entities.get("destination_iata") or "").upper()
@@ -774,28 +767,16 @@ async def _handle_flight_search(update, context, entities, lang):
         await memory_service.add_message("assistant", reply)
         return
 
-    await update.effective_message.reply_text(f"Searching flights {origin} → {destination}...")
+    msg = flight_service.build_message(origin, destination, departure_date, return_date, adults)
+    gf_url = flight_service.google_flights_url(origin, destination, departure_date, return_date, adults)
+    ss_url = flight_service.skyscanner_url(origin, destination, departure_date, return_date, adults)
 
-    try:
-        offers = await flight_service.search_flights(
-            origin=origin,
-            destination=destination,
-            departure_date=departure_date,
-            return_date=return_date,
-            adults=adults,
-        )
-        text = flight_service.format_results(offers, origin, destination, departure_date, return_date)
-        gf_url = flight_service.google_flights_url(origin, destination, departure_date, return_date)
-        keyboard = InlineKeyboardMarkup([[
-            InlineKeyboardButton("View on Google Flights", url=gf_url)
-        ]])
-        await update.effective_message.reply_text(text, reply_markup=keyboard)
-        await memory_service.add_message("assistant", text)
-    except Exception as exc:
-        logger.error("Flight search failed: %s", exc)
-        reply = f"Could not fetch flights. Check Amadeus API keys or try again. ({exc})"
-        await update.effective_message.reply_text(reply)
-        await memory_service.add_message("assistant", reply)
+    keyboard = InlineKeyboardMarkup([[
+        InlineKeyboardButton("Google Flights", url=gf_url),
+        InlineKeyboardButton("Skyscanner", url=ss_url),
+    ]])
+    await update.effective_message.reply_text(msg, reply_markup=keyboard)
+    await memory_service.add_message("assistant", msg)
 
 
 async def _handle_general_chat(update, context, lang, text):

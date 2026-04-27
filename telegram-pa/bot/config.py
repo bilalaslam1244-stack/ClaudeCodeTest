@@ -29,9 +29,6 @@ ZOOM_ACCOUNT_ID: str = os.getenv("ZOOM_ACCOUNT_ID", "")
 ZOOM_CLIENT_ID: str = os.getenv("ZOOM_CLIENT_ID", "")
 ZOOM_CLIENT_SECRET: str = os.getenv("ZOOM_CLIENT_SECRET", "")
 
-AMADEUS_API_KEY: str = os.getenv("AMADEUS_API_KEY", "")
-AMADEUS_API_SECRET: str = os.getenv("AMADEUS_API_SECRET", "")
-AMADEUS_BASE_URL: str = os.getenv("AMADEUS_BASE_URL", "https://test.api.amadeus.com")
 
 GMAIL_POLL_INTERVAL_MINUTES = 15
 MAX_TELEGRAM_MESSAGE_LENGTH = 4096
