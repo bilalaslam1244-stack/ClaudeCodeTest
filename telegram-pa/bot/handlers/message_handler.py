@@ -760,6 +760,7 @@ async def _handle_flight_search(update, context, entities, lang):
     departure_date = entities.get("time_iso", "")[:10] if entities.get("time_iso") else ""
     return_date = (entities.get("return_date") or "")[:10]
     adults = int(entities.get("adults") or 1)
+    logger.info("Flight search entities: origin=%r dest=%r date=%r", origin, destination, departure_date)
 
     if not origin or not destination or not departure_date:
         reply = "Please specify origin, destination and date. E.g. 'Find flights from KL to Dubai on 15 May'"
