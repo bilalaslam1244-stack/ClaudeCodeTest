@@ -80,6 +80,7 @@ Return this exact JSON schema:
     "email_to": "<recipient email address or name, or null>",
     "email_subject": "<email subject line, or null>",
     "email_body": "<email body text, or null>",
+    "mute_pattern": "<for email_mute/email_unmute: the sender email address or keyword to mute/unmute, e.g. 'no-reply@procurehere.com' or 'tender', or null>",
     "zoom_requested": <true if user explicitly mentions zoom/video call/zoom link, false otherwise>,
     "events": <for calendar_create_bulk only: array of {{"name": "<title>", "time_iso": "<UTC ISO8601 or null if date unknown>", "duration_minutes": <int>}}, else null>,
     "date_specified": <for calendar_create_bulk only: true if user explicitly stated a date, false if no date was given>,

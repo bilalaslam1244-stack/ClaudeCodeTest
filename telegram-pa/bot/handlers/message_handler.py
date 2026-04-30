@@ -626,7 +626,19 @@ async def _handle_email_overview(update, context, entities, lang):
 
 
 async def _handle_email_mute(update, context, entities, original_text):
-    pattern = (entities.get("person") or entities.get("topic") or entities.get("description") or "").strip()
+    import re as _re
+    pattern = (
+        entities.get("mute_pattern")
+        or entities.get("person")
+        or entities.get("topic")
+        or entities.get("description")
+        or ""
+    ).strip()
+    if not pattern:
+        # fallback: extract email address from raw text
+        m = _re.search(r"[\w.+\-]+@[\w\-]+\.[\w.]+", original_text)
+        if m:
+            pattern = m.group()
     if not pattern:
         await update.effective_message.reply_text("What sender or keyword should I mute? e.g. 'mute tender emails'")
         return
@@ -638,7 +650,18 @@ async def _handle_email_mute(update, context, entities, original_text):
 
 
 async def _handle_email_unmute(update, context, entities, original_text):
-    pattern = (entities.get("person") or entities.get("topic") or entities.get("description") or "").strip()
+    import re as _re
+    pattern = (
+        entities.get("mute_pattern")
+        or entities.get("person")
+        or entities.get("topic")
+        or entities.get("description")
+        or ""
+    ).strip()
+    if not pattern:
+        m = _re.search(r"[\w.+\-]+@[\w\-]+\.[\w.]+", original_text)
+        if m:
+            pattern = m.group()
     if not pattern:
         muted = await mute_service.list_muted()
         reply = f"Currently muted: {', '.join(muted) if muted else 'nothing'}"
