@@ -182,12 +182,16 @@ def format_email_digest(emails: list[dict]) -> str:
     return "\n".join(lines)
 
 
-def _fetch_recent_sync(creds, max_results: int, from_filter: str | None) -> list[dict]:
+def _fetch_recent_sync(creds, max_results: int, from_filter: str | None, exclude_patterns: list[str] | None = None) -> list[dict]:
     service = _build_service_sync(creds)
     query = "in:inbox -category:promotions"
     if from_filter:
-        # Search by sender name or email
         query += f" from:{from_filter}"
+    for pat in (exclude_patterns or []):
+        # only use as -from: if pattern looks like an email domain/address
+        import re as _re
+        if _re.search(r"@[\w.\-]+", pat):
+            query += f" -from:{pat}"
     result = service.users().messages().list(
         userId="me", q=query, maxResults=max_results
     ).execute()
@@ -214,7 +218,8 @@ async def get_emails_summary(max_results: int = 10, from_filter: str | None = No
     """Fetch latest inbox emails and return AI-summarized digest. Used for on-demand checks."""
     from bot.services import mute_service
     creds = await get_credentials()
-    emails = await asyncio.to_thread(_fetch_recent_sync, creds, max_results * 2, from_filter)
+    muted_patterns = await mute_service.list_muted()
+    emails = await asyncio.to_thread(_fetch_recent_sync, creds, max_results * 2, from_filter, muted_patterns)
     emails = [e for e in emails if not await mute_service.is_muted(e["sender"], e["subject"])]
     emails = emails[:max_results]
     if not emails:
