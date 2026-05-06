@@ -1,6 +1,8 @@
 import logging
 import os
+import threading
 
+import uvicorn
 from telegram import Update
 from telegram.ext import (
     Application,
@@ -10,6 +12,7 @@ from telegram.ext import (
 )
 
 from bot.config import TELEGRAM_BOT_TOKEN, ALLOWED_USER_ID, ALLOWED_USER_IDS, OUTPUT_DIR, TELEGRAM_LOCAL_API_URL
+from bot.dashboard import log_buffer as _log_buffer
 from bot.db.database import init_db
 from bot.handlers.message_handler import handle_message
 from bot.handlers.document_handler import handle_document
@@ -22,9 +25,18 @@ logging.basicConfig(
     format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
     level=logging.INFO,
 )
+_log_buffer.setup()
 logger = logging.getLogger(__name__)
 
 os.makedirs(OUTPUT_DIR, exist_ok=True)
+
+
+def _start_dashboard() -> None:
+    from bot.dashboard.app import app, DASHBOARD_PORT
+    uvicorn.run(app, host="0.0.0.0", port=DASHBOARD_PORT, log_level="warning")
+
+
+threading.Thread(target=_start_dashboard, daemon=True).start()
 
 
 async def _gmail_poll_job(bot) -> None:

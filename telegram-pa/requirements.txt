@@ -19,3 +19,5 @@ pytesseract>=0.3.10
 Pillow>=10.0.0
 tenacity==8.3.0
 python-dateutil==2.9.0
+fastapi>=0.111.0
+uvicorn>=0.30.0
