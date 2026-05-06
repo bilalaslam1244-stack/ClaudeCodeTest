@@ -51,6 +51,7 @@ _HTML = (
     ".badge{display:inline-block;padding:2px 8px;border-radius:12px;font-size:11px;font-weight:600}"
     ".badge.g{background:rgba(34,197,94,.15);color:var(--green)}"
     ".badge.r{background:rgba(239,68,68,.15);color:var(--red)}"
+    ".badge.yellow{background:rgba(245,158,11,.15);color:var(--yellow)}"
     ".krow{display:flex;align-items:center;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border)}"
     ".krow:last-child{border-bottom:none}"
     "table{width:100%;border-collapse:collapse}"
@@ -93,7 +94,8 @@ _HTML = (
     '<div class="card"><h2>Muted Email Senders</h2><div id="muted"></div></div>'
     '<div class="card"><h2>Pending Reminders</h2><div id="reminders"></div></div>'
     '<div class="card"><h2>Recent Emails (Cache)</h2><div id="emails"></div></div>'
-    '<div class="card fw"><h2>Activity Log</h2><div class="lw" id="logs"></div></div>'
+    '<div class="card fw"><h2>User Activity (Last 100 Tasks)</h2><div class="lw" id="activity"></div></div>'
+    '<div class="card fw"><h2>System Log</h2><div class="lw" id="logs"></div></div>'
     "</div>"
     "<script>"
     "function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}"
@@ -127,6 +129,17 @@ _HTML = (
     "else{let h='<table><thead><tr><th>From</th><th>Subject</th></tr></thead><tbody>';"
     "for(const e of d.recent_emails)h+='<tr><td class=\"ts\">'+esc(e.sender.replace(/<.*>/,'').trim())+'</td><td>'+esc(e.subject)+'</td></tr>';"
     "ed.innerHTML=h+'</tbody></table>'}"
+    "const ad=document.getElementById('activity');"
+    "if(!d.activity||!d.activity.length){ad.innerHTML='<div class=\"empty\">No activity yet — send a message to the bot</div>'}"
+    "else{let h='<table><thead><tr><th>Time (UTC)</th><th>Intent</th><th>Confidence</th><th>Status</th><th>Message</th></tr></thead><tbody>';"
+    "for(const a of d.activity){"
+    "const sc=a.status==='ok'?'g':a.status==='low_confidence'?'yellow':'r';"
+    "h+='<tr><td class=\"ts\">'+esc(a.timestamp.slice(0,16).replace('T',' '))+'</td>';"
+    "h+='<td><b>'+esc(a.intent)+'</b></td>';"
+    "h+='<td class=\"ts\">'+(a.confidence*100).toFixed(0)+'%</td>';"
+    "h+='<td><span class=\"badge '+sc+'\">'+esc(a.status)+'</span></td>';"
+    "h+='<td class=\"ts\">'+esc(a.message)+'</td></tr>';}"
+    "ad.innerHTML=h+'</tbody></table>'}"
     "const ld=document.getElementById('logs');"
     "if(!d.logs.length){ld.innerHTML='<div class=\"empty\">No log entries yet</div>'}"
     "else{let h='';"
@@ -176,6 +189,17 @@ async def get_status() -> dict:
     except Exception:
         pass
 
+    activity: list[dict] = []
+    try:
+        async with aiosqlite.connect(DB_PATH) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(
+                "SELECT timestamp, intent, confidence, message, status FROM activity_log ORDER BY id DESC LIMIT 100"
+            ) as cur:
+                activity = [dict(r) for r in await cur.fetchall()]
+    except Exception:
+        pass
+
     api_keys = {
         "Telegram": bool(TELEGRAM_BOT_TOKEN),
         "Anthropic (Claude)": bool(ANTHROPIC_API_KEY),
@@ -193,6 +217,7 @@ async def get_status() -> dict:
         "muted_senders": muted,
         "recent_emails": recent_emails,
         "api_keys": api_keys,
+        "activity": activity,
         "logs": get_logs()[:150],
     }
 

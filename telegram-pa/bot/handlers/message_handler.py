@@ -20,6 +20,7 @@ from bot.services import (
     memory_service,
     url_service,
     mute_service,
+    activity_service,
 )
 from bot.scheduler import jobs
 from bot.utils.language import detect_language
@@ -237,6 +238,13 @@ async def handle_message(
     confidence = result.confidence
 
     logger.info("Intent: %s (%.2f) | lang: %s", intent, confidence, lang)
+    await activity_service.log(
+        user_id=user_id,
+        intent=intent,
+        message=text,
+        confidence=confidence,
+        status="low_confidence" if confidence < _CONFIDENCE_THRESHOLD else "ok",
+    )
 
     if confidence < _CONFIDENCE_THRESHOLD:
         history = await memory_service.get_history()

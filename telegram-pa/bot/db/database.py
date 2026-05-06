@@ -63,5 +63,15 @@ async def init_db() -> None:
                 pattern    TEXT    NOT NULL UNIQUE,
                 created_at TEXT    NOT NULL
             );
+
+            CREATE TABLE IF NOT EXISTS activity_log (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp   TEXT    NOT NULL,
+                user_id     INTEGER NOT NULL,
+                intent      TEXT    NOT NULL,
+                confidence  REAL    NOT NULL DEFAULT 0,
+                message     TEXT    NOT NULL,
+                status      TEXT    NOT NULL DEFAULT 'ok'
+            );
         """)
         await db.commit()
