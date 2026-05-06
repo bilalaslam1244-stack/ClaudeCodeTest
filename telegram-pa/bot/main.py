@@ -32,8 +32,14 @@ os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 
 def _start_dashboard() -> None:
-    from bot.dashboard.app import app, DASHBOARD_PORT
-    uvicorn.run(app, host="0.0.0.0", port=DASHBOARD_PORT, log_level="warning")
+    import asyncio
+    try:
+        asyncio.set_event_loop(asyncio.new_event_loop())
+        from bot.dashboard.app import app, DASHBOARD_PORT
+        logger.info("Dashboard starting on port %s", DASHBOARD_PORT)
+        uvicorn.run(app, host="0.0.0.0", port=DASHBOARD_PORT, log_level="warning")
+    except Exception as exc:
+        logger.error("Dashboard failed to start: %s", exc, exc_info=True)
 
 
 threading.Thread(target=_start_dashboard, daemon=True).start()
