@@ -313,12 +313,17 @@ async def find_contact_email(name: str) -> str | None:
     return await asyncio.to_thread(_find_contact_sync, creds, name)
 
 
-def _get_overview_sync(creds, max_results: int = 10) -> list[dict]:
+def _get_overview_sync(creds, max_results: int = 10, exclude_patterns: list[str] | None = None) -> list[dict]:
     """Fetch last N emails from inbox for a quick overview."""
+    import re as _re
     service = _build_service_sync(creds)
+    query = "in:inbox"
+    for pat in (exclude_patterns or []):
+        if _re.search(r"@[\w.\-]+", pat):
+            query += f" -from:{pat}"
     result = service.users().messages().list(
         userId="me",
-        labelIds=["INBOX"],
+        q=query,
         maxResults=max_results,
     ).execute()
     messages = result.get("messages", [])
@@ -339,8 +344,12 @@ def _get_overview_sync(creds, max_results: int = 10) -> list[dict]:
 
 async def get_inbox_overview(max_results: int = 10) -> str:
     """Return a plain-text overview of the last N inbox emails."""
+    from bot.services import mute_service
     creds = await get_credentials()
-    emails = await asyncio.to_thread(_get_overview_sync, creds, max_results)
+    muted_patterns = await mute_service.list_muted()
+    emails = await asyncio.to_thread(_get_overview_sync, creds, max_results * 2, muted_patterns)
+    emails = [e for e in emails if not await mute_service.is_muted(e["sender"], e["subject"])]
+    emails = emails[:max_results]
     if not emails:
         return "Inbox is empty."
     lines = [f"Last {len(emails)} emails:\n"]
