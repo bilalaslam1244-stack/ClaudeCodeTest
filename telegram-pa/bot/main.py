@@ -1,9 +1,11 @@
 import logging
 import os
+import sys
 import threading
 
 import uvicorn
 from telegram import Update
+from telegram.error import Conflict, NetworkError
 from telegram.ext import (
     Application,
     CallbackQueryHandler,
@@ -20,6 +22,35 @@ from bot.handlers.callback_handler import handle_callback
 from bot.scheduler import jobs
 from bot.services import gmail_service
 from bot.utils.formatting import send_long_message
+
+_LOCK_FILE = os.path.join(os.path.dirname(__file__), "..", "data", "bot.pid")
+
+
+def _acquire_lock() -> None:
+    """Exit if another instance is already running."""
+    lock_path = os.path.abspath(_LOCK_FILE)
+    os.makedirs(os.path.dirname(lock_path), exist_ok=True)
+    if os.path.exists(lock_path):
+        try:
+            with open(lock_path) as f:
+                old_pid = int(f.read().strip())
+            # Check if that PID is still alive
+            import psutil
+            if psutil.pid_exists(old_pid):
+                print(f"ERROR: Bot already running (PID {old_pid}). Stop it first.", flush=True)
+                sys.exit(1)
+        except (ValueError, ImportError, OSError):
+            pass  # Stale lock — overwrite it
+    with open(lock_path, "w") as f:
+        f.write(str(os.getpid()))
+
+
+def _release_lock() -> None:
+    lock_path = os.path.abspath(_LOCK_FILE)
+    try:
+        os.remove(lock_path)
+    except OSError:
+        pass
 
 logging.basicConfig(
     format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
@@ -125,30 +156,47 @@ async def post_init(application: Application) -> None:
     logger.info("Scheduler started")
 
 
+async def _error_handler(update: object, context) -> None:
+    err = context.error
+    if isinstance(err, Conflict):
+        logger.warning("Telegram 409 Conflict — another bot instance may be running. Retrying...")
+        return
+    if isinstance(err, NetworkError):
+        logger.warning("Telegram network error (will retry): %s", err)
+        return
+    logger.error("Unhandled update error: %s", err, exc_info=err)
+
+
 def main() -> None:
-    builder = Application.builder().token(TELEGRAM_BOT_TOKEN).post_init(post_init)
-    if TELEGRAM_LOCAL_API_URL:
-        builder = builder.base_url(TELEGRAM_LOCAL_API_URL)
-        logger.info("Using local Telegram Bot API: %s", TELEGRAM_LOCAL_API_URL)
-    application = builder.build()
+    _acquire_lock()
+    try:
+        builder = Application.builder().token(TELEGRAM_BOT_TOKEN).post_init(post_init)
+        if TELEGRAM_LOCAL_API_URL:
+            builder = builder.base_url(TELEGRAM_LOCAL_API_URL)
+            logger.info("Using local Telegram Bot API: %s", TELEGRAM_LOCAL_API_URL)
+        application = builder.build()
 
-    # Handlers — documents + audio files first, then voice notes + text
-    application.add_handler(
-        MessageHandler(
-            (filters.Document.ALL | filters.AUDIO) & filters.User(ALLOWED_USER_IDS),
-            handle_document,
-        )
-    )
-    application.add_handler(
-        MessageHandler(
-            (filters.TEXT | filters.VOICE | filters.PHOTO) & filters.User(ALLOWED_USER_IDS),
-            handle_message,
-        )
-    )
-    application.add_handler(CallbackQueryHandler(handle_callback))
+        application.add_error_handler(_error_handler)
 
-    logger.info("Bot starting...")
-    application.run_polling(allowed_updates=Update.ALL_TYPES)
+        # Handlers — documents + audio files first, then voice notes + text
+        application.add_handler(
+            MessageHandler(
+                (filters.Document.ALL | filters.AUDIO) & filters.User(ALLOWED_USER_IDS),
+                handle_document,
+            )
+        )
+        application.add_handler(
+            MessageHandler(
+                (filters.TEXT | filters.VOICE | filters.PHOTO) & filters.User(ALLOWED_USER_IDS),
+                handle_message,
+            )
+        )
+        application.add_handler(CallbackQueryHandler(handle_callback))
+
+        logger.info("Bot starting...")
+        application.run_polling(allowed_updates=Update.ALL_TYPES)
+    finally:
+        _release_lock()
 
 
 if __name__ == "__main__":
